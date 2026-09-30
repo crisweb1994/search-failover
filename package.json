@@ -5,6 +5,14 @@
   "type": "module",
   "license": "MIT",
   "author": "crisweb1994",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crisweb1994/search-failover.git"
+  },
+  "bugs": {
+    "url": "https://github.com/crisweb1994/search-failover/issues"
+  },
+  "homepage": "https://github.com/crisweb1994/search-failover#readme",
   "keywords": [
     "mcp",
     "model-context-protocol",
