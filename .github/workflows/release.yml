@@ -8,6 +8,7 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: release # must match the Environment field in npm Trusted Publisher config
     permissions:
       contents: read
       id-token: write # OIDC trusted publishing + npm provenance
