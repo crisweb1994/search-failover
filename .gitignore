@@ -3,3 +3,4 @@ dist/
 *.log
 .v2c/
 .video_agent/
+docs/

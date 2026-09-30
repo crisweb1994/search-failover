@@ -46,7 +46,7 @@ ZCode / Claude Code / Cursor 等：
 也可以全局安装后直接指向二进制：`"command": "search-failover"`。从源码跑则用 `"command": "node"` + `args` 指向 `dist/index.js` 的绝对路径。
 
 > [!NOTE]
-> 可选配置文件 `search-failover.json`（放宿主 cwd，或用 `SEARCH_FAILOVER_CONFIG` 指定路径）：provider 优先级、月度配额与重置日、缓存 TTL、总预算。全字段有默认值，不写就按 [mvp-spec §10](docs/mvp-spec.md) 的默认配置跑。
+> 可选配置文件 `search-failover.json`（放宿主 cwd，或用 `SEARCH_FAILOVER_CONFIG` 指定路径）：provider 优先级、月度配额与重置日、缓存 TTL、总预算。全字段有默认值，不写就按内置默认配置跑。
 
 
 
