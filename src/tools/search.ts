@@ -1,0 +1,97 @@
+import { z } from 'zod';
+import type { AppConfig, ProviderCfg } from '../config.js';
+import { cacheKey, normalizeQuery, ResultCache } from '../cache.js';
+import { runSearch, type ProviderEntry } from '../router.js';
+import type { GatewayState } from '../state.js';
+import type { SearchRequest } from '../types.js';
+import { log } from '../logger.js';
+
+export const searchInput = {
+  query: z.string().min(1).describe('搜索词'),
+  max_results: z.number().int().min(1).max(20).describe('返回条数上限，缺省 8').default(8),
+  freshness: z.enum(['day', 'week', 'month', 'year']).describe('时间过滤：day/week/month/year').optional(),
+  include_domains: z.array(z.string()).describe('仅返回这些域名的结果（Tavily/Exa 原生支持，Brave 支持单域名，博查/DDG 忽略此参数）').optional(),
+  provider: z.string().describe('强制指定单一源（调试用）：bocha | tavily | brave | exa | duckduckgo').optional(),
+  use_cache: z.boolean().describe('是否允许命中缓存（同参数 1 小时内秒回且不耗配额）').default(true),
+};
+
+export interface ToolDeps {
+  config: AppConfig;
+  allProviders: ProviderCfg[];
+  providers: ProviderEntry[];
+  state: GatewayState;
+  cache: ResultCache;
+}
+
+const QUERY_MAX_CHARS = 400;
+
+export function makeSearchHandler(deps: ToolDeps) {
+  return async (args: z.infer<z.ZodObject<typeof searchInput>>) => {
+    const startedAt = Date.now();
+    try {
+      const notes: string[] = [];
+
+      let query = args.query.trim();
+      if (query.length > QUERY_MAX_CHARS) {
+        query = query.slice(0, QUERY_MAX_CHARS);
+        notes.push(`query 超过 ${QUERY_MAX_CHARS} 字符已截断`);
+      }
+
+      const req: SearchRequest = {
+        query,
+        maxResults: args.max_results,
+        freshness: args.freshness,
+        includeDomains: args.include_domains,
+        provider: args.provider,
+        useCache: args.use_cache,
+      };
+      if (req.provider && !deps.providers.some(p => p.cfg.name === req.provider)) {
+        notes.push(`provider ${req.provider} 未配置或不可用`);
+      }
+
+      const key = cacheKey(normalizeQuery(query), req.freshness, req.includeDomains);
+      const cacheUsable = deps.config.cache.enabled && req.useCache && !req.provider;
+
+      const cached = cacheUsable ? deps.cache.get(key) : undefined;
+
+      let results;
+      let meta;
+      if (cached) {
+        results = cached;
+        meta = {
+          provider_used: cached[0]?.provider ?? null,
+          fallback_chain: [],
+          cache_hit: true,
+          elapsed_ms: Date.now() - startedAt,
+        };
+      } else {
+        const outcome = await runSearch(req, deps);
+        results = outcome.results;
+        meta = outcome.meta;
+        if (cacheUsable && results.length > 0) {
+          deps.cache.put(key, results, req.freshness === 'day');
+        }
+      }
+
+      if (notes.length > 0) {
+        meta.note = meta.note ? `${meta.note}；${notes.join('；')}` : notes.join('；');
+      }
+
+      const payload = { results: results.slice(0, req.maxResults), meta };
+      return { content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }] };
+    } catch (e) {
+      // 工程红线：不向宿主抛裸异常，进程不崩
+      log.error(`search 内部错误: ${String(e instanceof Error ? e.stack : e)}`);
+      const payload = {
+        results: [],
+        meta: {
+          provider_used: null,
+          fallback_chain: [{ provider: 'gateway', outcome: 'internal_error', detail: String(e instanceof Error ? e.message : e), elapsedMs: 0 }],
+          cache_hit: false,
+          elapsed_ms: Date.now() - startedAt,
+        },
+      };
+      return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }] };
+    }
+  };
+}

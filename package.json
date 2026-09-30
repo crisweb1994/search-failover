@@ -1,0 +1,52 @@
+{
+  "name": "search-failover",
+  "version": "0.1.0",
+  "description": "搜索故障转移网关 MCP：聚合博查/Tavily/Brave/Exa/DuckDuckGo，任一来源限额、超时或空结果时自动切换下一家 (Search failover gateway MCP: aggregates Bocha/Tavily/Brave/Exa/DuckDuckGo with automatic failover)",
+  "type": "module",
+  "license": "MIT",
+  "author": "crisweb1994",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "search",
+    "web-search",
+    "failover",
+    "search-engine",
+    "tavily",
+    "brave",
+    "bocha",
+    "exa",
+    "duckduckgo",
+    "ai-agent"
+  ],
+  "bin": {
+    "search-failover": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "docs"
+  ],
+  "engines": {
+    "node": ">=20.10"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "msw": "^2.6.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}
