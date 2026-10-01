@@ -83,6 +83,17 @@ export async function runSearch(req: SearchRequest, deps: RouterDeps): Promise<{
       continue;
     }
 
+    // D10：pre-flight 软闸门——本地计数达到 limit 时不再发请求（宁少花，不误杀；
+    // 计数有偏差，权威停发仍是上游 quota_exhausted 错误屏蔽）
+    if (p.cfg.quota.type !== 'unbounded' && p.cfg.quota.limit !== undefined
+      && deps.state.used(p.cfg.name) >= p.cfg.quota.limit) {
+      chain.push({
+        provider: p.cfg.name, outcome: 'skipped:quota_local',
+        detail: `${deps.state.used(p.cfg.name)}/${p.cfg.quota.limit}`, elapsedMs: 0,
+      });
+      continue;
+    }
+
     const budgetLeft = deadline - Date.now();
     if (budgetLeft <= 0) {
       chain.push({ provider: p.cfg.name, outcome: 'skipped:budget_exhausted', elapsedMs: 0 });
@@ -102,18 +113,21 @@ export async function runSearch(req: SearchRequest, deps: RouterDeps): Promise<{
       chain.push({ provider: p.cfg.name, outcome: 'skipped:budget_exhausted', elapsedMs: Date.now() - stepStart });
       continue;
     }
-    const fetchCount = Math.min(deps.config.cache.store_size, p.adapter.maxCount);
+    // D12：cache_fill=取足喂缓存（按请求计费源）；as_requested=按需取数（按结果计费源）
+    const fetchCount = p.cfg.fetch_policy === 'as_requested'
+      ? Math.min(req.maxResults, p.adapter.maxCount)
+      : Math.min(deps.config.cache.store_size, p.adapter.maxCount);
 
     try {
       const raws = await p.adapter.search(req, fetchCount, AbortSignal.timeout(timeoutMs));
       const elapsed = Date.now() - stepStart;
+      deps.state.tick(p.cfg.name, p.cfg); // D13：收到响应即计数（空结果多数源仍计费）
       if (raws.length === 0) {
         // D3：no_results 不惩罚不屏蔽，直接切下一家
         chain.push({ provider: p.cfg.name, outcome: 'no_results', elapsedMs: elapsed });
         continue;
       }
       deps.state.recordSuccess(p.cfg.name);
-      deps.state.tick(p.cfg.name, p.cfg);
       const results: SearchResult[] = dedupe(raws).map(r => ({ ...r, provider: p.cfg.name }));
       return { results, meta: buildMeta(chain, p.cfg.name, Date.now() - startedAt, notes) };
     } catch (e) {

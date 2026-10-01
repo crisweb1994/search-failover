@@ -6,6 +6,24 @@ export interface HttpResponseInfo {
   bodyText: string;
 }
 
+/** 防御上限：异常大的响应体（如 challenge 页堆积 JS）不得无界读入内存 */
+export const MAX_BODY_CHARS = 512 * 1024;
+
+async function readTextCapped(res: Response, limit = MAX_BODY_CHARS): Promise<string> {
+  if (!res.body) return res.text();
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let out = '';
+  while (out.length < limit) {
+    const { done, value } = await reader.read();
+    if (done) return out + decoder.decode();
+    out += decoder.decode(value, { stream: true });
+  }
+  // fire-and-forget：个别流实现（含 msw mock 流）的 cancel() 可能永不 resolve，不能 await
+  void reader.cancel().catch(() => {});
+  return out.slice(0, limit);
+}
+
 /**
  * fetch 包装：网络异常/超时统一映射为 ProviderError（timeout/network），
  * HTTP 状态码原样返回，由各家 adapter 的 classify 决定分类。
@@ -26,7 +44,7 @@ export async function rawRequest(
     }
     throw new ProviderError(provider, 'network', String(e instanceof Error ? e.message : e));
   }
-  return { status: res.status, headers: res.headers, bodyText: await res.text() };
+  return { status: res.status, headers: res.headers, bodyText: await readTextCapped(res) };
 }
 
 /** 通用兜底：5xx → server_error；未识别 4xx → server_error 但 soft（不计入失败阶梯） */
@@ -79,12 +97,14 @@ export function snippetFrom(content: string | undefined, fallback?: string): str
   return fallback || undefined;
 }
 
-/** freshness → 各源枚举映射表（impl-spec §7；Exa 在自己的 adapter 里换算天数） */
+/** freshness → 各源枚举映射表（impl-spec §7；Exa/百度千帆在各自 adapter 里换算，不入此表） */
 export const FRESHNESS: Record<string, Record<Freshness, string>> = {
   bocha: { day: 'oneDay', week: 'oneWeek', month: 'oneMonth', year: 'oneYear' },
   tavily: { day: 'day', week: 'week', month: 'month', year: 'year' },
   brave: { day: 'pd', week: 'pw', month: 'pm', year: 'py' },
   ddg: { day: 'd', week: 'w', month: 'm', year: 'y' },
+  zhipu: { day: 'oneDay', week: 'oneWeek', month: 'oneMonth', year: 'oneYear' },
+  serper: { day: 'qdr:d', week: 'qdr:w', month: 'qdr:m', year: 'qdr:y' },
 };
 
 export type { ProviderAdapter, RawResult, SearchRequest };

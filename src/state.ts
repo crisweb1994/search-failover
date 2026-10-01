@@ -34,12 +34,18 @@ export function paceIntervalMs(cfg: ProviderCfg): number {
   return 0;
 }
 
+/** 该月 reset_day 的 00:00；reset_day 超过当月天数时 clamp 到月末（31 在 9 月 → 9/30），避免 JS Date 滚入下月 */
+function monthStart(year: number, month: number, day: number): Date {
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  return new Date(year, month, Math.min(day, lastDay), 0, 0, 0, 0);
+}
+
 /** 下一次月度重置点（本地时区该 reset_day 的 00:00） */
 export function nextResetMs(now: number, resetDay: number): number {
   const d = new Date(now);
-  let target = new Date(d.getFullYear(), d.getMonth(), resetDay, 0, 0, 0, 0);
+  let target = monthStart(d.getFullYear(), d.getMonth(), resetDay);
   if (target.getTime() <= now) {
-    target = new Date(d.getFullYear(), d.getMonth() + 1, resetDay, 0, 0, 0, 0);
+    target = monthStart(d.getFullYear(), d.getMonth() + 1, resetDay);
   }
   return target.getTime();
 }
@@ -47,8 +53,8 @@ export function nextResetMs(now: number, resetDay: number): number {
 /** 当前计费窗口起点（用于配额计数的 period key） */
 function windowStart(now: number, resetDay: number): Date {
   const d = new Date(now);
-  const candidate = new Date(d.getFullYear(), d.getMonth(), resetDay, 0, 0, 0, 0);
-  return candidate.getTime() <= now ? candidate : new Date(d.getFullYear(), d.getMonth() - 1, resetDay, 0, 0, 0, 0);
+  const candidate = monthStart(d.getFullYear(), d.getMonth(), resetDay);
+  return candidate.getTime() <= now ? candidate : monthStart(d.getFullYear(), d.getMonth() - 1, resetDay);
 }
 
 function periodKey(now: number, resetDay: number): string {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GatewayState, nextResetMs, paceWaitMs } from '../../src/state.js';
 import { providerSchema, defaultProviders } from '../../src/config.js';
+import { REGISTRY } from '../../src/providers/registry.js';
 import { ProviderError } from '../../src/types.js';
 
 const DEFAULTS = { cooldown_default_s: 60, cooldown_max_s: 3600 };
@@ -103,6 +104,15 @@ describe('nextReset / pace 辅助函数', () => {
     expect(nextResetMs(now, 25)).toBe(new Date(2026, 8, 25, 0, 0, 0, 0).getTime()); // 9/25 未到
   });
 
+  it('nextResetMs：reset_day=31 在 30 天月份 clamp 到月末，不滚入下月', () => {
+    const sep20 = new Date('2026-09-20T10:00:00').getTime();
+    expect(nextResetMs(sep20, 31)).toBe(new Date(2026, 8, 30, 0, 0, 0, 0).getTime()); // 9/30，而非 10/1
+    const sep30 = new Date('2026-09-30T10:00:00').getTime();
+    expect(nextResetMs(sep30, 31)).toBe(new Date(2026, 9, 31, 0, 0, 0, 0).getTime()); // 9/30 已过 → 10/31（大月正常）
+    const feb = new Date('2026-02-10T10:00:00').getTime();
+    expect(nextResetMs(feb, 31)).toBe(new Date(2026, 1, 28, 0, 0, 0, 0).getTime()); // 2 月 clamp 到 2/28，未到 → 2/28
+  });
+
   it('paceWaitMs：间隔不足补齐', () => {
     expect(paceWaitMs(undefined, 1050, NOW)).toBe(0);
     expect(paceWaitMs(NOW - 100, 1050, NOW)).toBe(950);
@@ -120,12 +130,42 @@ describe('配额计数', () => {
     s.tick('test', cfg);
     expect(s.quotaWarning('test', cfg)).toBe(true);
   });
+
+  it('tick 计数窗口：reset_day=31 clamp 后跨月不提前开新窗口', () => {
+    const s = new GatewayState();
+    const cfg = p({ quota: { type: 'monthly', limit: 100, reset_day: 31 } });
+    // 无 clamp 时 9/31 滚成 10/1，10/1 请求即开新 period；clamp 后窗口起点 9/30，10 月内同一窗口
+    s.tick('test', cfg, new Date('2026-10-01T10:00:00').getTime());
+    s.tick('test', cfg, new Date('2026-10-15T10:00:00').getTime());
+    expect(s.used('test')).toBe(2);
+    // 重置点 10/31 00:00 已过 → 新窗口重新计数
+    s.tick('test', cfg, new Date('2026-10-31T10:00:00').getTime());
+    expect(s.used('test')).toBe(1);
+    // 11 月初仍属 [10/31, 11/30) 窗口，继续累计
+    s.tick('test', cfg, new Date('2026-11-02T10:00:00').getTime());
+    expect(s.used('test')).toBe(2);
+  });
 });
 
-describe('默认配置完整性', () => {
-  it('五家默认 provider 名称与优先级', () => {
-    const names = defaultProviders().map(x => `${x.priority}:${x.name}`);
-    expect(names).toEqual(['1:bocha', '2:tavily', '3:brave', '4:exa', '5:duckduckgo']);
-    expect(defaultProviders()[4]?.cooldown_max_s).toBe(21600);
+describe('默认配置完整性（注册表派生，D15）', () => {
+  it('默认链 = defaultEnabled 源按 priority 排序；存量五家相对顺序冻结', () => {
+    const chain = defaultProviders().filter(p => p.enabled).map(x => `${x.priority}:${x.name}`);
+    expect(chain).toEqual(['1:bocha', '3:tavily', '5:brave', '7:exa', '8:duckduckgo']);
+  });
+
+  it('defaultProviders 与 REGISTRY 一一对应（名称集与 priority）', () => {
+    expect(defaultProviders().map(p => p.name).sort()).toEqual(Object.keys(REGISTRY).sort());
+    for (const p of defaultProviders()) {
+      expect(`${p.priority}:${p.name}`).toBe(`${REGISTRY[p.name]!.priority}:${p.name}`);
+    }
+  });
+
+  it('opt-in 源默认 enabled=false（D14）；DDG 冷却上限保留', () => {
+    const byName = Object.fromEntries(defaultProviders().map(p => [p.name, p]));
+    expect(byName['zhipu']?.enabled).toBe(false);
+    expect(byName['qianfan']?.enabled).toBe(false);
+    expect(byName['serper']?.enabled).toBe(false);
+    expect(byName['duckduckgo']?.cooldown_max_s).toBe(21600);
+    expect(byName['qianfan']?.local_qps).toBe(1);
   });
 });

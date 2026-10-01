@@ -190,3 +190,61 @@ describe('normalizeUrl / dedupe 辅助', () => {
     expect(normalizeUrl('not a url')).toBe('not a url');
   });
 });
+
+describe('配额软闸门 / fetch_policy / tick 口径（D10/D12/D13）', () => {
+  it('D10：used ≥ limit → skipped:quota_local 且不发请求、不屏蔽', async () => {
+    const a = new Fake('p1', [[r('https://never.com')]]);
+    const b = new Fake('p2', [[r('https://ok.com')]]);
+    const state = new GatewayState();
+    const cfg = providerSchema.parse({ name: 'p1', priority: 1, quota: { type: 'monthly', limit: 2, reset_day: 1 } });
+    state.tick('p1', cfg);
+    state.tick('p1', cfg);
+    const providers: ProviderEntry[] = [
+      { cfg, adapter: a },
+      { cfg: providerSchema.parse({ name: 'p2', priority: 2, quota: { type: 'unbounded' } }), adapter: b },
+    ];
+
+    const out = await runSearch(REQ(), { providers, state, config: mkConfig() });
+    expect(a.calls).toBe(0);
+    expect(out.meta.fallback_chain[0]).toMatchObject({ provider: 'p1', outcome: 'skipped:quota_local', detail: '2/2' });
+    expect(out.meta.provider_used).toBe('p2');
+    expect(state.checkBlocked('p1')).toBeNull(); // 软闸门不进健康状态
+  });
+
+  it('D10：unbounded / 未设 limit 的源不触发闸门', async () => {
+    const a = new Fake('p1', [[r('https://ok.com')]]);
+    const state = new GatewayState();
+    const cfg = providerSchema.parse({ name: 'p1', priority: 1, quota: { type: 'one_time' } }); // 无 limit
+    for (let i = 0; i < 10; i++) state.tick('p1', cfg);
+    const providers: ProviderEntry[] = [{ cfg, adapter: a }];
+
+    const out = await runSearch(REQ(), { providers, state, config: mkConfig() });
+    expect(a.calls).toBe(1);
+    expect(out.meta.provider_used).toBe('p1');
+  });
+
+  it('D13：空结果（no_results 路径）也计数', async () => {
+    const a = new Fake('p1', [[]]);
+    const b = new Fake('p2', [[r('https://ok.com')]]);
+    const { deps, state } = mkDeps([a, b]);
+    await runSearch(REQ(), deps);
+    expect(state.used('p1')).toBe(1); // 空结果仍 tick
+    expect(state.used('p2')).toBe(1);
+  });
+
+  it('D12：as_requested → fetchCount = min(maxResults, maxCount)；cache_fill 保持现状', async () => {
+    const seen: number[] = [];
+    const mk = (fetchPolicy: string, maxCount: number): ProviderEntry => {
+      const fake = new Fake('p', [[r('https://ok.com')]], maxCount);
+      return {
+        cfg: providerSchema.parse({ name: 'p', priority: 1, quota: { type: 'unbounded' }, fetch_policy: fetchPolicy }),
+        adapter: { ...fake, search: async (req, fc, sig) => { seen.push(fc); return fake.search(req, fc, sig); } },
+      };
+    };
+    const state = new GatewayState();
+    await runSearch(REQ({ maxResults: 5 }), { providers: [mk('as_requested', 100)], state, config: mkConfig() });
+    expect(seen[0]).toBe(5); // 按需取数
+    await runSearch(REQ({ maxResults: 5 }), { providers: [mk('cache_fill', 100)], state, config: mkConfig() });
+    expect(seen[1]).toBe(20); // 取足喂缓存（store_size 默认 20）
+  });
+});

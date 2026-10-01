@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { REGISTRY } from '../../src/providers/registry.js';
 
 /**
  * e2e：真实子进程起服（stdio），验证——
  * ① stdout 每一行都是合法 JSON-RPC（工程红线：stdout 纯净性守卫，验收 11 一部分）
  * ② tools/list 能发现 search / status（验收 11）
- * ③ status 调用返回五家 provider 状态（无 key 环境下仅 DDG active，其余 unconfigured，验收 12）
+ * ③ status 返回全部注册源状态（无 key 环境下仅 DDG active，其余 unconfigured，验收 12）
  */
 
 interface Msg { jsonrpc: string; id?: number; method?: string; result?: any; error?: any }
@@ -17,6 +18,7 @@ function startServer(): { child: ChildProcess; send: (m: object) => void; messag
       ...process.env,
       LOG: 'error',
       BOCHA_API_KEY: '', TAVILY_API_KEY: '', BRAVE_API_KEY: '', EXA_API_KEY: '',
+      ZHIPU_API_KEY: '', QIANFAN_API_KEY: '', SERPER_API_KEY: '',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
@@ -73,9 +75,10 @@ describe('stdio e2e', () => {
       const status = await waitfor(s.messages, 3);
       const payload = JSON.parse(status.result.content[0].text);
       const byName = Object.fromEntries(payload.providers.map((p: any) => [p.name, p.state]));
-      expect(payload.providers).toHaveLength(5);
+      expect(payload.providers).toHaveLength(Object.keys(REGISTRY).length);
       expect(byName['duckduckgo']).toBe('active');
       expect(byName['bocha']).toBe('unconfigured');
+      expect(byName['zhipu']).toBe('unconfigured'); // 无 key 时 unconfigured 优先于 opt-in 的 disabled
       expect(typeof payload.uptime_s).toBe('number');
     } finally {
       s.child.kill();
