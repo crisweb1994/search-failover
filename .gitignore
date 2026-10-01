@@ -4,3 +4,6 @@ dist/
 .v2c/
 .video_agent/
 docs/
+
+# ZCode 本地会话产物
+.zcode/
