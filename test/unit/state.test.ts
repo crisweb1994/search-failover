@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GatewayState, nextResetMs, paceWaitMs } from '../../src/state.js';
 import { providerSchema, defaultProviders } from '../../src/config.js';
+import { REGISTRY } from '../../src/providers/registry.js';
 import { ProviderError } from '../../src/types.js';
 
 const DEFAULTS = { cooldown_default_s: 60, cooldown_max_s: 3600 };
@@ -122,10 +123,25 @@ describe('配额计数', () => {
   });
 });
 
-describe('默认配置完整性', () => {
-  it('五家默认 provider 名称与优先级', () => {
-    const names = defaultProviders().map(x => `${x.priority}:${x.name}`);
-    expect(names).toEqual(['1:bocha', '2:tavily', '3:brave', '4:exa', '5:duckduckgo']);
-    expect(defaultProviders()[4]?.cooldown_max_s).toBe(21600);
+describe('默认配置完整性（注册表派生，D15）', () => {
+  it('默认链 = defaultEnabled 源按 priority 排序；存量五家相对顺序冻结', () => {
+    const chain = defaultProviders().filter(p => p.enabled).map(x => `${x.priority}:${x.name}`);
+    expect(chain).toEqual(['1:bocha', '3:tavily', '5:brave', '7:exa', '8:duckduckgo']);
+  });
+
+  it('defaultProviders 与 REGISTRY 一一对应（名称集与 priority）', () => {
+    expect(defaultProviders().map(p => p.name).sort()).toEqual(Object.keys(REGISTRY).sort());
+    for (const p of defaultProviders()) {
+      expect(`${p.priority}:${p.name}`).toBe(`${REGISTRY[p.name]!.priority}:${p.name}`);
+    }
+  });
+
+  it('opt-in 源默认 enabled=false（D14）；DDG 冷却上限保留', () => {
+    const byName = Object.fromEntries(defaultProviders().map(p => [p.name, p]));
+    expect(byName['zhipu']?.enabled).toBe(false);
+    expect(byName['qianfan']?.enabled).toBe(false);
+    expect(byName['serper']?.enabled).toBe(false);
+    expect(byName['duckduckgo']?.cooldown_max_s).toBe(21600);
+    expect(byName['qianfan']?.local_qps).toBe(1);
   });
 });

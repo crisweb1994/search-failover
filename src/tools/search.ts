@@ -3,15 +3,16 @@ import type { AppConfig, ProviderCfg } from '../config.js';
 import { cacheKey, normalizeQuery, ResultCache } from '../cache.js';
 import { runSearch, type ProviderEntry } from '../router.js';
 import type { GatewayState } from '../state.js';
-import type { SearchRequest } from '../types.js';
+import type { SearchMeta, SearchRequest, SearchResult } from '../types.js';
+import { domainFilterDescribe, providerParamDescribe } from '../providers/describe.js';
 import { log } from '../logger.js';
 
 export const searchInput = {
   query: z.string().min(1).describe('搜索词'),
   max_results: z.number().int().min(1).max(20).describe('返回条数上限，缺省 8').default(8),
   freshness: z.enum(['day', 'week', 'month', 'year']).describe('时间过滤：day/week/month/year').optional(),
-  include_domains: z.array(z.string()).describe('仅返回这些域名的结果（Tavily/Exa 原生支持，Brave 支持单域名，博查/DDG 忽略此参数）').optional(),
-  provider: z.string().describe('强制指定单一源（调试用）：bocha | tavily | brave | exa | duckduckgo').optional(),
+  include_domains: z.array(z.string()).describe(domainFilterDescribe()).optional(),
+  provider: z.string().describe(providerParamDescribe()).optional(),
   use_cache: z.boolean().describe('是否允许命中缓存（同参数 1 小时内秒回且不耗配额）').default(true),
 };
 
@@ -54,8 +55,8 @@ export function makeSearchHandler(deps: ToolDeps) {
 
       const cached = cacheUsable ? deps.cache.get(key) : undefined;
 
-      let results;
-      let meta;
+      let results: SearchResult[];
+      let meta: SearchMeta;
       if (cached) {
         results = cached;
         meta = {
@@ -69,7 +70,14 @@ export function makeSearchHandler(deps: ToolDeps) {
         results = outcome.results;
         meta = outcome.meta;
         if (cacheUsable && results.length > 0) {
-          deps.cache.put(key, results, req.freshness === 'day');
+          // D12 配套：as_requested 源的短结果入缓存会毒化后续更大 max_results 的命中
+          // （缓存 key 不含条数、命中只截断不补取），仅取满时才写
+          const winner = meta.provider_used
+            ? deps.allProviders.find(p => p.name === meta.provider_used)
+            : undefined;
+          const cacheable = !winner || winner.fetch_policy !== 'as_requested'
+            || results.length >= deps.config.cache.store_size;
+          if (cacheable) deps.cache.put(key, results, req.freshness === 'day');
         }
       }
 

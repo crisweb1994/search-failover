@@ -79,12 +79,14 @@ export function snippetFrom(content: string | undefined, fallback?: string): str
   return fallback || undefined;
 }
 
-/** freshness → 各源枚举映射表（impl-spec §7；Exa 在自己的 adapter 里换算天数） */
+/** freshness → 各源枚举映射表（impl-spec §7；Exa/百度千帆在各自 adapter 里换算，不入此表） */
 export const FRESHNESS: Record<string, Record<Freshness, string>> = {
   bocha: { day: 'oneDay', week: 'oneWeek', month: 'oneMonth', year: 'oneYear' },
   tavily: { day: 'day', week: 'week', month: 'month', year: 'year' },
   brave: { day: 'pd', week: 'pw', month: 'pm', year: 'py' },
   ddg: { day: 'd', week: 'w', month: 'm', year: 'y' },
+  zhipu: { day: 'oneDay', week: 'oneWeek', month: 'oneMonth', year: 'oneYear' },
+  serper: { day: 'qdr:d', week: 'qdr:w', month: 'qdr:m', year: 'qdr:y' },
 };
 
 export type { ProviderAdapter, RawResult, SearchRequest };

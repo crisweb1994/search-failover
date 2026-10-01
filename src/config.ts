@@ -1,21 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { log } from './logger.js';
-
-/** 每个源 API key 的环境变量名；duckduckgo 不需要 key */
-export const ENV_KEYS: Record<string, string> = {
-  bocha: 'BOCHA_API_KEY',
-  tavily: 'TAVILY_API_KEY',
-  brave: 'BRAVE_API_KEY',
-  exa: 'EXA_API_KEY',
-  duckduckgo: '',
-};
-
-export function apiKeyFor(name: string): string | undefined {
-  const envKey = ENV_KEYS[name];
-  if (!envKey) return undefined;
-  return process.env[envKey] || undefined;
-}
+import { defaultProviderConfigs } from './providers/registry.js';
 
 const quotaSchema = z.object({
   type: z.enum(['monthly', 'one_time', 'unbounded']).default('unbounded'),
@@ -35,6 +21,11 @@ export const providerSchema = z.object({
   min_interval_ms: z.number().optional(),
   /** 该源冷却时长上限覆盖（秒）；DDG 被封需要 6h */
   cooldown_max_s: z.number().optional(),
+  /**
+   * 取数策略（D12）：cache_fill=一次取足 min(store_size, maxCount) 喂缓存（按请求计费源）；
+   * as_requested=只取 maxResults（按结果数计费源，如 Firecrawl，Phase 2 起用）。
+   */
+  fetch_policy: z.enum(['cache_fill', 'as_requested']).default('cache_fill'),
 });
 
 const defaultsSchema = z.object({
@@ -62,14 +53,9 @@ export const configSchema = z.object({
 export type ProviderCfg = z.infer<typeof providerSchema>;
 export type AppConfig = z.infer<typeof configSchema>;
 
+/** 默认配置由注册表生成（D15：名单单一事实来源；opt-in 源 enabled=false） */
 export function defaultProviders(): ProviderCfg[] {
-  return [
-    { name: 'bocha', enabled: true, priority: 1, quota: { type: 'monthly', limit: 1000, reset_day: 1, quota_retry_s: 21600 } },
-    { name: 'tavily', enabled: true, priority: 2, quota: { type: 'monthly', limit: 1000, reset_day: 2, quota_retry_s: 21600 } },
-    { name: 'brave', enabled: true, priority: 3, quota: { type: 'monthly', limit: 2000, reset_day: 15, quota_retry_s: 21600 }, local_qps: 1 },
-    { name: 'exa', enabled: true, priority: 4, quota: { type: 'one_time', limit: 800, quota_retry_s: 21600 } },
-    { name: 'duckduckgo', enabled: true, priority: 5, quota: { type: 'unbounded', quota_retry_s: 21600 }, cooldown_max_s: 21600, min_interval_ms: 2000 },
-  ];
+  return defaultProviderConfigs();
 }
 
 function die(message: string): never {

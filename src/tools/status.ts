@@ -1,6 +1,7 @@
-import { apiKeyFor } from '../config.js';
+import { isConfigured } from '../credentials.js';
 import type { ResultCache } from '../cache.js';
 import type { GatewayState } from '../state.js';
+import type { ProviderCfg } from '../config.js';
 import type { ToolDeps } from './search.js';
 
 function quotaProfile(p: { quota: { type: string; limit?: number; reset_day?: number } }): string {
@@ -11,11 +12,12 @@ function quotaProfile(p: { quota: { type: string; limit?: number; reset_day?: nu
 
 export function makeStatusHandler(deps: ToolDeps) {
   return async () => {
-    const providers = deps.allProviders.map(cfg => {
-      const configured = cfg.name === 'duckduckgo' || !!apiKeyFor(cfg.name);
+    const providers = deps.allProviders.map((cfg: ProviderCfg) => {
+      const configured = isConfigured(cfg.name);
       const blocked = deps.state.checkBlocked(cfg.name);
       let state: string;
       if (!configured) state = 'unconfigured';
+      else if (!cfg.enabled) state = 'disabled'; // opt-in 源未开启（D14）
       else if (blocked?.reason === 'auth_failure') state = 'disabled(auth_failure)';
       else if (blocked) state = `blocked(${blocked.reason}, 剩${blocked.remainS}s)`;
       else state = 'active';

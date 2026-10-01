@@ -1,7 +1,7 @@
 {
   "name": "search-failover",
-  "version": "0.1.1",
-  "description": "搜索故障转移网关 MCP：聚合博查/Tavily/Brave/Exa/DuckDuckGo，任一来源限额、超时或空结果时自动切换下一家 (Search failover gateway MCP: aggregates Bocha/Tavily/Brave/Exa/DuckDuckGo with automatic failover)",
+  "version": "0.2.0",
+  "description": "搜索故障转移网关 MCP：聚合博查/Tavily/Brave/Exa/DuckDuckGo 默认链，可选启用智谱/百度千帆/Serper (Search failover gateway MCP: default chain of Bocha/Tavily/Brave/Exa/DuckDuckGo with opt-in Zhipu/Qianfan/Serper and automatic failover)",
   "type": "module",
   "license": "MIT",
   "author": "crisweb1994",
@@ -25,6 +25,9 @@
     "bocha",
     "exa",
     "duckduckgo",
+    "zhipu",
+    "qianfan",
+    "serper",
     "ai-agent"
   ],
   "bin": {

@@ -1,4 +1,4 @@
-import { apiKeyFor } from '../config.js';
+import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type Freshness, type RawResult } from '../types.js';
 import {
   classifyDefault, rawRequest, safeJson, snippetFrom, truncateContent,
