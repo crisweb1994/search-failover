@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import pkg from '../package.json' with { type: 'json' };
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { isConfigured } from './credentials.js';
@@ -33,7 +34,7 @@ async function main(): Promise<void> {
 
   const deps = { config, allProviders: config.providers, providers, state, cache };
 
-  const server = new McpServer({ name: 'search-failover', version: '0.2.0' });
+  const server = new McpServer({ name: 'search-failover', version: pkg.version });
   server.registerTool('search', { description: SEARCH_DESCRIPTION, inputSchema: searchInput }, makeSearchHandler(deps));
   server.registerTool(
     'status',

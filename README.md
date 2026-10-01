@@ -1,6 +1,8 @@
 # search-failover
 
-![npm](https://img.shields.io/npm/v/search-failover) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6) ![MCP](https://img.shields.io/badge/MCP-stdio-6E43B8) ![tests](https://img.shields.io/badge/tests-108%20passing-2EA44F) ![license](https://img.shields.io/badge/license-MIT-blue)
+[简体中文](README.md) | [English](README.en.md)
+
+![npm](https://img.shields.io/npm/v/search-failover) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6) ![MCP](https://img.shields.io/badge/MCP-stdio-6E43B8) ![tests](https://img.shields.io/badge/tests-117%20passing-2EA44F) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 搜索故障转移网关 MCP：对外只暴露一个 `search` 工具，内部池化 8 个搜索源——默认链为博查 → Tavily → Brave → Exa → DuckDuckGo，另有三家可选源（智谱 / 百度千帆 / Serper，配置文件显式开启），任一家限额、超时或空结果时自动切换下一家。你的 agent 从此不必关心"哪家搜索又没额度了"。
 
@@ -109,7 +111,7 @@ ZCode / Claude Code / Cursor 等：
 
 ```bash
 npm run dev         # tsx 本地起服
-npm test            # 108 用例：单元 / 契约 / Router 集成 / stdio e2e
+npm test            # 117 用例：单元 / 契约 / Router 集成 / stdio e2e
 npm run typecheck   # tsc --noEmit
 npm run build       # 产出 dist/
 ```

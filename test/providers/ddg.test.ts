@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse, delay } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { duckduckgo, parseHtml } from '../../src/providers/ddg.js';
@@ -50,6 +50,30 @@ describe('DDG adapter 契约（限流=202 异常页，封禁=403/challenge）', 
       })));
     const err = await expectProviderError(call(), 'rate_limited');
     expect(err.retryAfterMs).toBe(6 * 3600 * 1000);
+  });
+
+  it('正常结果页的标题含 challenge/captcha 词 → 不误判封禁（复合判定回归：误屏蔽 6h）', async () => {
+    const page = PAGE.replaceAll('Result &amp; One', 'Top coding challenge ideas')
+      .replaceAll('Result Two', 'How captcha puzzles work');
+    server.use(http.post('https://html.duckduckgo.com/html/', () =>
+      new HttpResponse(page, { headers: { 'Content-Type': 'text/html' } })));
+    const results = await call();
+    expect(results).toHaveLength(2);
+    expect(results[0]!.title).toBe('Top coding challenge ideas');
+  });
+
+  it('大页面解析 0 条且无关键词 → 返回 [] 并记 warn（页面结构变更可感知）', async () => {
+    const big = `<html><body>${'<p>filler content, nothing parseable here</p>'.repeat(60)}</body></html>`;
+    expect(big.length).toBeGreaterThan(1024);
+    const warnSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    try {
+      server.use(http.post('https://html.duckduckgo.com/html/', () =>
+        new HttpResponse(big, { headers: { 'Content-Type': 'text/html' } })));
+      expect(await call()).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('0 条结果'));
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('403 → rate_limited 6h', async () => {

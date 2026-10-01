@@ -1,5 +1,6 @@
 import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
 import { normalizeUrl } from '../router.js';
+import { log } from '../logger.js';
 import { classifyDefault, FRESHNESS, rawRequest, type ProviderAdapter } from './types.js';
 
 const ENDPOINT = 'https://html.duckduckgo.com/html/';
@@ -8,8 +9,9 @@ const CHALLENGE_COOLDOWN_MS = 6 * 3600 * 1000; // 被封走该源 cooldown_max_s
 
 /**
  * DuckDuckGo HTML 端点（无 key 兜底）。关键陷阱：限流不是 429 而是 HTTP 202+异常页，
- * 封禁是 403/challenge 页——解析前必须先做 bot-check 检测，
- * 否则 challenge 页被解析成 0 条、误触发 no_results 连环切源。
+ * 封禁是 403/challenge 页。challenge 判定必须是复合条件（解析出 0 条 且 含关键词）：
+ * bodyText 含结果标题/摘要，单凭关键词会把搜 "challenge/captcha" 本身的正常结果页
+ * 误判为封禁页，导致 DDG 被屏蔽 6 小时。
  */
 export const duckduckgo: ProviderAdapter = {
   name: 'duckduckgo',
@@ -36,10 +38,14 @@ export const duckduckgo: ProviderAdapter = {
     if (res.status === 403) throw new ProviderError('duckduckgo', 'rate_limited', 'ddg_challenge_403', { retryAfterMs: CHALLENGE_COOLDOWN_MS });
     if (res.status !== 200) throw classifyDefault(res, 'duckduckgo');
 
-    if (/anomaly|challenge|captcha|blocked/i.test(res.bodyText)) {
+    const results = parseHtml(res.bodyText, fetchCount);
+    if (results.length === 0 && /anomaly|challenge|captcha|blocked/i.test(res.bodyText)) {
       throw new ProviderError('duckduckgo', 'rate_limited', 'ddg_challenge_page', { retryAfterMs: CHALLENGE_COOLDOWN_MS });
     }
-    return parseHtml(res.bodyText, fetchCount);
+    if (results.length === 0 && res.bodyText.length > 1024) {
+      log.warn(`duckduckgo: 响应 ${res.bodyText.length} 字符但解析出 0 条结果，疑似页面结构变更（result__a 选择器失效）`);
+    }
+    return results;
   },
 };
 

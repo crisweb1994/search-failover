@@ -36,7 +36,9 @@
   "main": "dist/index.js",
   "files": [
     "dist",
-    "docs"
+    "docs",
+    "README.en.md",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=20.10"

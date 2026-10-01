@@ -51,6 +51,7 @@ function classify(res: HttpResponseInfo): ProviderError {
 }
 
 function bodyMsg(res: HttpResponseInfo): string {
-  const msg = safeJson(res.bodyText)?.msg ?? safeJson(res.bodyText)?.message;
+  const body = safeJson(res.bodyText);
+  const msg = body?.msg ?? body?.message;
   return msg ? String(msg).slice(0, 120) : '';
 }

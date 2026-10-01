@@ -40,7 +40,7 @@ describe('ResultCache（D9 最简 TTL Map）', () => {
     expect(c.size).toBe(0);
   });
 
-  it('超容量 FIFO 逐出最旧', () => {
+  it('超容量逐出最旧（无访问时等价 FIFO）', () => {
     const c = mk();
     c.put('k1', [r('https://1.com')], false, 1000);
     c.put('k2', [r('https://2.com')], false, 1000);
@@ -49,5 +49,25 @@ describe('ResultCache（D9 最简 TTL Map）', () => {
     expect(c.get('k1', 2000)).toBeUndefined();
     expect(c.get('k2', 2000)).toHaveLength(1);
     expect(c.get('k3', 2000)).toHaveLength(1);
+  });
+
+  it('LRU：近期命中的条目不被逐出', () => {
+    const c = mk();
+    c.put('k1', [r('https://1.com')], false, 1000);
+    c.put('k2', [r('https://2.com')], false, 1000);
+    c.get('k1', 2000); // k1 提升热度
+    c.put('k3', [r('https://3.com')], false, 1000);
+    expect(c.get('k1', 2000)).toHaveLength(1); // 被逐出的是冷的 k2
+    expect(c.get('k2', 2000)).toBeUndefined();
+    expect(c.get('k3', 2000)).toHaveLength(1);
+  });
+
+  it('惰性清扫：第 16 次 put 时清掉过期条目，释放名额', () => {
+    const c = new ResultCache({ ttl_s: 100, ttl_fresh_s: 50, max_entries: 100 });
+    for (let i = 0; i < 15; i++) c.put(`old${i}`, [r(`https://old${i}.com`)], false, 1000);
+    expect(c.size).toBe(15);
+    c.put('new', [r('https://new.com')], false, 200_000); // 第 16 次 put 触发清扫，old* 已于 101s 过期
+    expect(c.size).toBe(1);
+    expect(c.get('new', 200_000)).toHaveLength(1);
   });
 });

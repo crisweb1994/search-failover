@@ -104,6 +104,15 @@ describe('nextReset / pace 辅助函数', () => {
     expect(nextResetMs(now, 25)).toBe(new Date(2026, 8, 25, 0, 0, 0, 0).getTime()); // 9/25 未到
   });
 
+  it('nextResetMs：reset_day=31 在 30 天月份 clamp 到月末，不滚入下月', () => {
+    const sep20 = new Date('2026-09-20T10:00:00').getTime();
+    expect(nextResetMs(sep20, 31)).toBe(new Date(2026, 8, 30, 0, 0, 0, 0).getTime()); // 9/30，而非 10/1
+    const sep30 = new Date('2026-09-30T10:00:00').getTime();
+    expect(nextResetMs(sep30, 31)).toBe(new Date(2026, 9, 31, 0, 0, 0, 0).getTime()); // 9/30 已过 → 10/31（大月正常）
+    const feb = new Date('2026-02-10T10:00:00').getTime();
+    expect(nextResetMs(feb, 31)).toBe(new Date(2026, 1, 28, 0, 0, 0, 0).getTime()); // 2 月 clamp 到 2/28，未到 → 2/28
+  });
+
   it('paceWaitMs：间隔不足补齐', () => {
     expect(paceWaitMs(undefined, 1050, NOW)).toBe(0);
     expect(paceWaitMs(NOW - 100, 1050, NOW)).toBe(950);
@@ -120,6 +129,21 @@ describe('配额计数', () => {
     expect(s.quotaWarning('test', cfg)).toBe(false);
     s.tick('test', cfg);
     expect(s.quotaWarning('test', cfg)).toBe(true);
+  });
+
+  it('tick 计数窗口：reset_day=31 clamp 后跨月不提前开新窗口', () => {
+    const s = new GatewayState();
+    const cfg = p({ quota: { type: 'monthly', limit: 100, reset_day: 31 } });
+    // 无 clamp 时 9/31 滚成 10/1，10/1 请求即开新 period；clamp 后窗口起点 9/30，10 月内同一窗口
+    s.tick('test', cfg, new Date('2026-10-01T10:00:00').getTime());
+    s.tick('test', cfg, new Date('2026-10-15T10:00:00').getTime());
+    expect(s.used('test')).toBe(2);
+    // 重置点 10/31 00:00 已过 → 新窗口重新计数
+    s.tick('test', cfg, new Date('2026-10-31T10:00:00').getTime());
+    expect(s.used('test')).toBe(1);
+    // 11 月初仍属 [10/31, 11/30) 窗口，继续累计
+    s.tick('test', cfg, new Date('2026-11-02T10:00:00').getTime());
+    expect(s.used('test')).toBe(2);
   });
 });
 
