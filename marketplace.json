@@ -1,0 +1,13 @@
+{
+  "name": "search-failover",
+  "description": "search-failover 插件市场（Aggregated web search with automatic failover）",
+  "plugins": [
+    {
+      "name": "search-failover",
+      "source": "./plugin",
+      "version": "0.2.0",
+      "description": "聚合网页搜索（顺序容灾）：博查/Tavily/Brave/Exa/DuckDuckGo 默认链，可选智谱/百度千帆/Serper；零 key 可用（DuckDuckGo 兜底）",
+      "category": "developer-tools"
+    }
+  ]
+}

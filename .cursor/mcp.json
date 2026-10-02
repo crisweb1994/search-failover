@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "search-failover": {
+      "command": "npx",
+      "args": ["-y", "search-failover"]
+    }
+  }
+}

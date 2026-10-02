@@ -1,0 +1,32 @@
+{
+  "name": "search-failover",
+  "version": "0.2.0",
+  "description": "聚合网页搜索（顺序容灾）：博查/Tavily/Brave/Exa/DuckDuckGo 默认链，可选智谱/百度千帆/Serper；零 key 可用（DuckDuckGo 兜底）",
+  "author": {
+    "name": "crisweb1994",
+    "url": "https://github.com/crisweb1994"
+  },
+  "homepage": "https://github.com/crisweb1994/search-failover#readme",
+  "repository": "https://github.com/crisweb1994/search-failover",
+  "license": "MIT",
+  "keywords": [
+    "search",
+    "web-search",
+    "mcp",
+    "failover",
+    "search-engine"
+  ],
+  "description_i18n": {
+    "en": "Aggregated web search with automatic failover: Bocha/Tavily/Brave/Exa/DuckDuckGo by default, opt-in Zhipu/Qianfan/Serper; works with zero API keys (DuckDuckGo fallback)",
+    "zh-CN": "聚合网页搜索（顺序容灾）：博查/Tavily/Brave/Exa/DuckDuckGo 默认链，可选智谱/百度千帆/Serper；零 key 可用（DuckDuckGo 兜底）"
+  },
+  "mcpServers": "./.mcp.json",
+  "userConfig": {
+    "config_path": {
+      "title": "配置文件路径",
+      "description": "search-failover.json 的绝对路径（可选）。用于启用可选源（智谱/千帆/Serper）、调整优先级与配额。留空则使用内置默认配置。",
+      "type": "string",
+      "default": ""
+    }
+  }
+}

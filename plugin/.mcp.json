@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "search-failover": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "search-failover@0.2.0"
+      ],
+      "env": {
+        "SEARCH_FAILOVER_CONFIG": "${user_config.config_path}"
+      },
+      "timeoutMs": 60000
+    }
+  }
+}

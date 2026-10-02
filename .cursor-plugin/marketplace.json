@@ -1,0 +1,16 @@
+{
+  "name": "search-failover",
+  "owner": {
+    "name": "crisweb1994"
+  },
+  "metadata": {
+    "description": "search-failover plugin marketplace (aggregated web search with automatic failover)"
+  },
+  "plugins": [
+    {
+      "name": "search-failover",
+      "source": "plugin",
+      "description": "Aggregated web search with automatic failover: Bocha/Tavily/Brave/Exa/DuckDuckGo by default, opt-in Zhipu/Qianfan/Serper"
+    }
+  ]
+}

@@ -49,13 +49,120 @@ export SERPER_API_KEY=...      # Serper.dev（Google 结果），一次性 2500 
 }
 ```
 
-存为宿主 cwd 的 `search-failover.json`（或用 `SEARCH_FAILOVER_CONFIG` 指定路径）。全开后链为：博查 → 智谱 → Tavily → 百度 → Brave → Serper → Exa → DDG。
+存为宿主 cwd 的 `search-failover.json`（或用 `SEARCH_FAILOVER_CONFIG` 指定路径；插件形态下 cwd 是缓存目录，务必用**绝对路径**）。全开后链为：博查 → 智谱 → Tavily → 百度 → Brave → Serper → Exa → DDG。
 
 
 
 ## 接入 MCP 宿主
 
-ZCode / Claude Code / Cursor 等：
+### 插件市场安装（推荐）
+
+本仓库已按 [Agent Plugins 1.0](https://agent-plugins.org) 打包（见 `plugin/` 目录），Codex / Cursor / ZCode 三家的市场清单都在仓库根：
+
+**Codex**（CLI ≥ 0.117）：
+
+```bash
+codex plugin marketplace add crisweb1994/search-failover
+```
+
+然后在 ChatGPT 桌面端 / Codex 的插件目录里安装 search-failover。本地开发验证可直接加仓库路径：`codex plugin marketplace add ./search-failover`。
+
+**ZCode**：插件市场 →「发现」→ `+` → 粘贴 `https://github.com/crisweb1994/search-failover`（或本地仓库路径）→ 安装 search-failover。装完可在插件详情「配置」里填 `config_path`（search-failover.json 的绝对路径，可选，留空用内置默认）。
+
+**Cursor**：同时支持 Agent Plugins 与 Cursor 原生插件两种格式（本仓库两者都带）。官方市场提交审核中；在此之前用下面的 MCP 配置，或以本地目录方式添加本仓库根的 `.cursor-plugin/marketplace.json`。
+
+**OpenCode**：没有插件市场清单，走下面的 MCP 配置。
+
+> [!IMPORTANT]
+> **密钥与可选源是两件事：**
+> - 不配任何 key 也能用——搜索自动走 DuckDuckGo 兜底（依赖本机 Node ≥ 20.10 与网络）。
+> - 7 个 API key 一律走**宿主进程环境变量**：`BOCHA_API_KEY` / `TAVILY_API_KEY` / `BRAVE_API_KEY` / `EXA_API_KEY` / `ZHIPU_API_KEY` / `QIANFAN_API_KEY` / `SERPER_API_KEY`（DuckDuckGo 免 key）。启动宿主前 `export`，或写进各宿主配置的 `env` 字段。
+> - **配了 key ≠ 进链**：智谱 / 千帆 / Serper 是 opt-in 源，必须在 search-failover.json 里显式 `enabled: true` 才进链（见上文「启用可选源」）。只配 key 不改配置，`status` 里它依然不出现——这是预期行为。
+> - 插件形态下进程 cwd 是插件缓存目录，`SEARCH_FAILOVER_CONFIG` 请用**绝对路径**。
+
+### Cursor（MCP 配置）
+
+全局 `~/.cursor/mcp.json` 或项目 `.cursor/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "search-failover": {
+      "command": "npx",
+      "args": ["-y", "search-failover"],
+      "env": {
+        "BOCHA_API_KEY": "${env:BOCHA_API_KEY}",
+        "TAVILY_API_KEY": "${env:TAVILY_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+`${env:NAME}` 是 Cursor 的变量插值，key 留在 shell 环境里不进配置文件；不需要的源整行删掉。
+
+### Codex（MCP 配置）
+
+一条命令：
+
+```bash
+codex mcp add search-failover -- npx -y search-failover
+```
+
+或 `~/.codex/config.toml`（项目级 `.codex/config.toml`）：
+
+```toml
+[mcp_servers.search-failover]
+command = "npx"
+args = ["-y", "search-failover"]
+startup_timeout_sec = 30   # npx 首次冷启动可能超过默认 10s
+
+[mcp_servers.search-failover.env]
+BOCHA_API_KEY = "..."
+TAVILY_API_KEY = "..."
+```
+
+### ZCode（MCP 配置）
+
+用户级 `~/.zcode/cli/config.json`（项目级 `<repo>/.zcode/config.json`），注意是嵌套的 `mcp.servers`：
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "search-failover": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "search-failover"],
+        "env": { "BOCHA_API_KEY": "..." },
+        "timeoutMs": 60000
+      }
+    }
+  }
+}
+```
+
+ZCode 的 MCP schema 是严格的：`command` 必须是字符串（不能写数组）、环境变量字段名必须是 `env`、出现未知字段整条 server 会被静默丢弃；配置文件里不展开 `${...}` 模板，要写具体值。
+
+### OpenCode（MCP 配置）
+
+`opencode.json`：
+
+```jsonc
+{
+  "mcp": {
+    "search-failover": {
+      "type": "local",
+      "command": ["npx", "-y", "search-failover"],
+      "environment": { "BOCHA_API_KEY": "..." }
+    }
+  }
+}
+```
+
+注意与其它宿主不同：`command` 是**数组**（命令与参数写在一起），环境变量字段叫 **`environment`**。（本段依据 OpenCode 官方文档编写，尚未在客户端实测。）
+
+### 其他宿主（Claude Desktop 等）
 
 ```json
 {
@@ -75,7 +182,7 @@ ZCode / Claude Code / Cursor 等：
 也可以全局安装后直接指向二进制：`"command": "search-failover"`。从源码跑则用 `"command": "node"` + `args` 指向 `dist/index.js` 的绝对路径。
 
 > [!NOTE]
-> 可选配置文件 `search-failover.json`（放宿主 cwd，或用 `SEARCH_FAILOVER_CONFIG` 指定路径）：provider 优先级、月度配额与重置日、缓存 TTL、总预算。全字段有默认值，不写就按内置默认配置跑。
+> 可选配置文件 `search-failover.json`：provider 优先级、月度配额与重置日、缓存 TTL、总预算。查找顺序：`SEARCH_FAILOVER_CONFIG` 指定路径（必须是存在的合法文件，否则启动失败）→ 宿主 cwd 下的同名文件 → 全默认。全字段有默认值，不写就按内置默认配置跑。
 
 
 
@@ -119,6 +226,24 @@ npm run build       # 产出 dist/
 新源接入流程（probe-first，D16）：先 `npx tsx scripts/probe.mts <provider>` 用真实 key 采集响应/错误体快照到 `test/fixtures/`，再据快照校准 adapter 契约测试——禁止凭文档手写 fixture。
 
 日志走 stderr（`LOG=error|warn|info|debug`），stdout 永远只有 MCP 协议帧。
+
+插件清单校验与版本同步：`npm run plugin:check`（结构级校验，`prepublishOnly` 会跑）/ `npm run plugin:sync`（把 package.json 版本同步进 plugin manifest、市场清单与 npx 锁定版本）。
+
+发布冒烟（按插件同款命令拉起真实分发包，跑 initialize → tools/list → status → 真实搜索的完整握手）：`node scripts/smoke-stdio.mjs`（支持 `--env KEY=V`、`--config /绝对路径/search-failover.json`、`--command node -- dist/index.js` 本地构建）。
+
+### 发布（npm + 插件清单同步）
+
+市场清单里的 npx 锁定版本必须与 npm 上的包对应，因此发布顺序是固定的：
+
+```bash
+npm version 0.3.0 --no-git-tag-version   # 1. 显式写目标版本（不要依赖 patch）
+npm run plugin:sync                       # 2. 同步 3 份 manifest + 3 份市场清单 + 3 处 npx 锁定版本
+npm run plugin:check && npm test          # 3. 校验（prepublishOnly 还会再跑一遍）
+git add -A && git commit -m "release: 0.3.0"  # 4. 版本与清单必须进同一个 commit
+# 5. 打 tag / 建 GitHub Release → CI 发布 npm
+```
+
+Release 触发 CI 到 npm 发布完成之间有几分钟窗口，此刻市场清单已指向新版本但 npm 还装不到——窗口期内不要对外公告插件更新。
 
 
 

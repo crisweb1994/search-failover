@@ -49,7 +49,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+    "plugin:sync": "node scripts/plugin-sync.mjs",
+    "plugin:check": "node scripts/plugin-sync.mjs --check",
+    "prepublishOnly": "npm run typecheck && npm test && npm run plugin:check && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
