@@ -52,23 +52,6 @@ function isPlainObject(v) {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** Agent Plugins 1.0 插件名：1–64 字符，[a-z0-9.-]，首尾字母数字，无 "--" / ".." */
-function validAgentPluginName(name) {
-  return (
-    typeof name === 'string' &&
-    name.length >= 1 &&
-    name.length <= 64 &&
-    /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(name) &&
-    !name.includes('--') &&
-    !name.includes('..')
-  );
-}
-
-/** ZCode 插件名：^[a-z0-9][a-z0-9._-]{0,127}$ */
-function validZcodeName(name) {
-  return typeof name === 'string' && /^[a-z0-9][a-z0-9._-]{0,127}$/.test(name);
-}
-
 /** stdio 声明的公共校验；extraEnvCheck(env) 用于各宿主差异规则 */
 function checkStdioServer(path, server, extraEnvCheck) {
   if (!isPlainObject(server)) {
@@ -179,8 +162,8 @@ if (agentManifest) {
   if (agentManifest.$schema !== 'https://agent-plugins.org/schemas/1.0.0/plugin.schema.json') {
     errors.push('plugin/plugin.json: $schema 必须精确等于 Agent Plugins 1.0.0 的 schema URL');
   }
-  if (!validAgentPluginName(agentManifest.name)) {
-    errors.push('plugin/plugin.json: name 不符合 Agent Plugins 命名规则（1-64，[a-z0-9.-]，首尾字母数字，无 -- / ..）');
+  if (agentManifest.name !== 'search-failover') {
+    errors.push(`plugin/plugin.json: name 必须是 "search-failover"（当前: ${JSON.stringify(agentManifest.name)}）`);
   }
   if (!agentManifest.version || !agentManifest.description) {
     errors.push('plugin/plugin.json: version 与 description 为本项目必填');
@@ -210,7 +193,7 @@ const agentPin = agentMcp ? pinnedVersion('plugin/mcp.json', agentMcp.mcpServers
 
 // 3. Cursor 原生清单（自包含：variables + 内联 mcpServers）
 if (cursorManifest) {
-  if (!validAgentPluginName(cursorManifest.name)) errors.push('plugin/.cursor-plugin/plugin.json: name 不合法');
+  if (cursorManifest.name !== 'search-failover') errors.push(`plugin/.cursor-plugin/plugin.json: name 必须是 "search-failover"`);
   // Cursor 官方要求 variables 是完整 JSON Schema：顶层 {"type":"object","properties":{...}}
   if (!isPlainObject(cursorManifest.variables)) {
     errors.push('plugin/.cursor-plugin/plugin.json: 必须声明 variables（JSON Schema）');
@@ -237,7 +220,7 @@ const cursorPin = cursorManifest
 
 // 4. ZCode manifest
 if (zcodeManifest) {
-  if (!validZcodeName(zcodeManifest.name)) errors.push('plugin/.zcode-plugin/plugin.json: name 不符合 ^[a-z0-9][a-z0-9._-]{0,127}$');
+  if (zcodeManifest.name !== 'search-failover') errors.push(`plugin/.zcode-plugin/plugin.json: name 必须是 "search-failover"`);
   const mcpField = zcodeManifest.mcpServers;
   if (typeof mcpField === 'string') {
     const target = mcpField.replace(/^\.\//, '');

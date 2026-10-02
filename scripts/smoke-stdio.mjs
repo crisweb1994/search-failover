@@ -21,6 +21,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -75,21 +76,14 @@ const child = spawn(command[0], command.slice(1), { cwd, env: childEnv, stdio: [
 const messages = [];
 const stderrChunks = [];
 let stdoutDirty = false;
-let buffer = '';
-child.stdout.setEncoding('utf8');
-child.stdout.on('data', (chunk) => {
-  buffer += chunk;
-  let idx;
-  while ((idx = buffer.indexOf('\n')) >= 0) {
-    const line = buffer.slice(0, idx).trim();
-    buffer = buffer.slice(idx + 1);
-    if (!line) continue;
-    try {
-      messages.push(JSON.parse(line));
-    } catch {
-      stdoutDirty = true; // stdout 出现非 JSON-RPC 行 = 协议纯净性破坏
-      console.error(`  stdout 非协议行: ${line.slice(0, 200)}`);
-    }
+createInterface({ input: child.stdout }).on('line', (line) => {
+  const text = line.trim();
+  if (!text) return;
+  try {
+    messages.push(JSON.parse(text));
+  } catch {
+    stdoutDirty = true; // stdout 出现非 JSON-RPC 行 = 协议纯净性破坏
+    console.error(`  stdout 非协议行: ${text.slice(0, 200)}`);
   }
 });
 child.stderr.setEncoding('utf8');
