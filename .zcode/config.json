@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "servers": {
+      "search-failover": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "search-failover"],
+        "enabled": true,
+        "timeoutMs": 60000
+      }
+    }
+  }
+}

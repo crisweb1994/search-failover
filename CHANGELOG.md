@@ -11,6 +11,7 @@
 - `scripts/plugin-sync.mjs`：版本同步（写模式）+ 结构级校验（`--check`，已挂进 `prepublishOnly`）——校验 manifest schema、npx 锁定版本一致性、共享 mcp.json 禁止占位符进 env、ZCode userConfig 禁止 sensitive 项等。
 - `scripts/smoke-stdio.mjs`：发布冒烟——用插件同款 `npx -y search-failover@<version>` 拉起真实分发包，跑完整握手（initialize → tools/list → status → 真实搜索），支持注入单 key / 绝对路径配置文件两种场景。
 - README 中英双语补齐四平台接入文档（Cursor / Codex / ZCode / OpenCode 各自的配置格式与坑），并区分「配 key」与「启用可选源」；新增插件市场安装入口与发布 SOP。
+- 开发便利：仓库级 `.cursor/mcp.json` 与 `.zcode/config.json`（零 key，DDG 兜底）——本仓库在 Cursor / ZCode 中打开即自动挂载 search-failover。
 
 ## [0.2.0] — 2026-10-01
 

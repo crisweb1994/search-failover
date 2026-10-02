@@ -5,5 +5,6 @@ dist/
 .video_agent/
 docs/
 
-# ZCode 本地会话产物
-.zcode/
+# ZCode 本地会话产物（config.json 是仓库级 MCP 开发配置，放行）
+.zcode/*
+!.zcode/config.json
