@@ -16,47 +16,55 @@
     "search-engine"
   ],
   "variables": {
-    "BOCHA_API_KEY": {
-      "type": "string",
-      "description": "Bocha (bochaai.com) API key. Optional — omit if you don't use Bocha."
-    },
-    "TAVILY_API_KEY": {
-      "type": "string",
-      "description": "Tavily API key. Optional."
-    },
-    "BRAVE_API_KEY": {
-      "type": "string",
-      "description": "Brave Search API key. Optional."
-    },
-    "EXA_API_KEY": {
-      "type": "string",
-      "description": "Exa.ai API key. Optional."
-    },
-    "ZHIPU_API_KEY": {
-      "type": "string",
-      "description": "Zhipu web-search API key. Opt-in provider — also needs enabled:true in search-failover.json."
-    },
-    "QIANFAN_API_KEY": {
-      "type": "string",
-      "description": "Baidu Qianfan API key. Opt-in provider — also needs enabled:true in search-failover.json."
-    },
-    "SERPER_API_KEY": {
-      "type": "string",
-      "description": "Serper.dev API key. Opt-in provider — also needs enabled:true in search-failover.json."
-    },
-    "CONFIG_PATH": {
-      "type": "string",
-      "description": "Absolute path to search-failover.json (optional; enables opt-in providers, priority and quota tuning). Leave empty for built-in defaults."
+    "type": "object",
+    "properties": {
+      "BOCHA_API_KEY": {
+        "type": "string",
+        "title": "Bocha API key",
+        "description": "Bocha (bochaai.com) API key. Optional — omit if you don't use Bocha."
+      },
+      "TAVILY_API_KEY": {
+        "type": "string",
+        "title": "Tavily API key",
+        "description": "Tavily API key. Optional."
+      },
+      "BRAVE_API_KEY": {
+        "type": "string",
+        "title": "Brave Search API key",
+        "description": "Brave Search API key. Optional."
+      },
+      "EXA_API_KEY": {
+        "type": "string",
+        "title": "Exa API key",
+        "description": "Exa.ai API key. Optional."
+      },
+      "ZHIPU_API_KEY": {
+        "type": "string",
+        "title": "Zhipu API key",
+        "description": "Zhipu web-search API key. Opt-in provider — also needs enabled:true in search-failover.json."
+      },
+      "QIANFAN_API_KEY": {
+        "type": "string",
+        "title": "Baidu Qianfan API key",
+        "description": "Baidu Qianfan API key. Opt-in provider — also needs enabled:true in search-failover.json."
+      },
+      "SERPER_API_KEY": {
+        "type": "string",
+        "title": "Serper API key",
+        "description": "Serper.dev API key. Opt-in provider — also needs enabled:true in search-failover.json."
+      },
+      "CONFIG_PATH": {
+        "type": "string",
+        "title": "Config file path",
+        "description": "Absolute path to search-failover.json (optional; enables opt-in providers, priority and quota tuning). Leave empty for built-in defaults."
+      }
     }
   },
   "mcpServers": {
     "search-failover": {
       "type": "stdio",
       "command": "npx",
-      "args": [
-        "-y",
-        "search-failover@0.2.0"
-      ],
+      "args": ["-y", "search-failover@0.2.0"],
       "env": {
         "BOCHA_API_KEY": "${BOCHA_API_KEY}",
         "TAVILY_API_KEY": "${TAVILY_API_KEY}",

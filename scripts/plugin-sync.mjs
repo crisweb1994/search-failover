@@ -211,20 +211,23 @@ const agentPin = agentMcp ? pinnedVersion('plugin/mcp.json', agentMcp.mcpServers
 // 3. Cursor 原生清单（自包含：variables + 内联 mcpServers）
 if (cursorManifest) {
   if (!validAgentPluginName(cursorManifest.name)) errors.push('plugin/.cursor-plugin/plugin.json: name 不合法');
+  // Cursor 官方要求 variables 是完整 JSON Schema：顶层 {"type":"object","properties":{...}}
   if (!isPlainObject(cursorManifest.variables)) {
-    errors.push('plugin/.cursor-plugin/plugin.json: 必须声明 variables（对象）');
+    errors.push('plugin/.cursor-plugin/plugin.json: 必须声明 variables（JSON Schema）');
+  } else if (cursorManifest.variables.type !== 'object' || !isPlainObject(cursorManifest.variables.properties)) {
+    errors.push('plugin/.cursor-plugin/plugin.json: variables 必须形如 {"type":"object","properties":{...}}（变量放进 properties，不是扁平字典）');
   } else {
-    for (const [k, v] of Object.entries(cursorManifest.variables)) {
+    for (const [k, v] of Object.entries(cursorManifest.variables.properties)) {
       if (!isPlainObject(v) || typeof v.type !== 'string') {
-        errors.push(`plugin/.cursor-plugin/plugin.json: variables.${k} 必须是含 type 的对象`);
+        errors.push(`plugin/.cursor-plugin/plugin.json: variables.properties.${k} 必须是含 type 的对象`);
       }
     }
   }
   const server = cursorManifest.mcpServers?.['search-failover'];
   checkStdioServer('plugin/.cursor-plugin/plugin.json', server, (env) => {
-    const declared = new Set(Object.keys(cursorManifest.variables ?? {}));
+    const declared = new Set(Object.keys(cursorManifest.variables?.properties ?? {}));
     for (const v of collectVars(env)) {
-      if (!declared.has(v)) errors.push(`plugin/.cursor-plugin/plugin.json: env 引用了未在 variables 声明的 \${${v}}`);
+      if (!declared.has(v)) errors.push(`plugin/.cursor-plugin/plugin.json: env 引用了未在 variables.properties 声明的 \${${v}}`);
     }
   });
 }
