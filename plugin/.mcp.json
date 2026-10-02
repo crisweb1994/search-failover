@@ -5,7 +5,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "search-failover@0.2.0"
+        "search-failover@0.3.0"
       ],
       "env": {
         "SEARCH_FAILOVER_CONFIG": "${user_config.config_path}"

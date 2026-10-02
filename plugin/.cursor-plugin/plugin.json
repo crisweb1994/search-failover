@@ -1,6 +1,6 @@
 {
   "name": "search-failover",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Aggregated web search with automatic failover: Bocha/Tavily/Brave/Exa/DuckDuckGo by default, opt-in Zhipu/Qianfan/Serper. Works with zero API keys (DuckDuckGo fallback).",
   "author": {
     "name": "crisweb1994"
@@ -64,7 +64,10 @@
     "search-failover": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "search-failover@0.2.0"],
+      "args": [
+        "-y",
+        "search-failover@0.3.0"
+      ],
       "env": {
         "BOCHA_API_KEY": "${BOCHA_API_KEY}",
         "TAVILY_API_KEY": "${TAVILY_API_KEY}",
