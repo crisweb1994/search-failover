@@ -1,9 +1,18 @@
+import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, parseRateLimitResetBuckets, rawRequest, safeJson,
+  classifyDefault, FRESHNESS, parseRateLimitResetBuckets, rawRequest, safeJson, parseSuccess,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
+
+const itemSchema = z.object({
+  title: z.string().min(1),
+  url: z.string().min(1),
+  description: z.string().nullish().transform(v => v ?? undefined),
+  page_age: z.string().nullish().transform(v => v ?? undefined),
+  age: z.string().nullish().transform(v => v ?? undefined),
+});
 
 const ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
 
@@ -36,16 +45,14 @@ export const brave: ProviderAdapter = {
     }, 'brave', signal);
 
     if (res.status !== 200) throw classify(res);
-    const json = safeJson(res.bodyText);
-    const items: any[] = json?.web?.results ?? [];
-    return items
-      .filter(it => it?.title && it?.url)
-      .map((it): RawResult => ({
-        title: String(it.title),
-        url: String(it.url),
-        snippet: it.description ? String(it.description) : undefined,
-        publishedDate: it.page_age ?? parseAge(it.age),
-      }));
+    const json = parseSuccess(res.bodyText, z.object({ web: z.object({ results: z.array(itemSchema) }) }), 'brave');
+    const items = json.web.results;
+    return items.map((it): RawResult => ({
+      title: it.title,
+      url: it.url,
+      snippet: it.description || undefined,
+      publishedDate: it.page_age ?? parseAge(it.age),
+    }));
   },
 };
 
@@ -55,7 +62,7 @@ function classify(res: HttpResponseInfo): ProviderError {
 
   if (res.status === 422) {
     if (code === 'SUBSCRIPTION_TOKEN_INVALID') return new ProviderError('brave', 'auth_failure', 'http_422 SUBSCRIPTION_TOKEN_INVALID');
-    return new ProviderError('brave', 'server_error', `http_422 ${code ?? ''}`, { soft: true });
+    return new ProviderError('brave', 'request_error', `http_422 ${code ?? ''}`);
   }
   if (res.status === 429) {
     const buckets = parseRateLimitResetBuckets(res.headers);

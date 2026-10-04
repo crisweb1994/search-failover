@@ -67,13 +67,15 @@ function buildMeta(chain: FallbackStep[], providerUsed: string | null, elapsedMs
  * 顺序兜底主循环（§3）：任何错误不重试，failover 即重试（D6 v1.2）；
  * 返回完整结果集（不截断），由工具层截断到 maxResults 并写缓存。
  */
-export async function runSearch(req: SearchRequest, deps: RouterDeps): Promise<{ results: SearchResult[]; meta: SearchMeta }> {
+export async function runSearch(req: SearchRequest, deps: RouterDeps, requestSignal?: AbortSignal): Promise<{ results: SearchResult[]; meta: SearchMeta }> {
   const startedAt = Date.now();
   const chain: FallbackStep[] = [];
   const notes: string[] = [];
   const deadline = startedAt + deps.config.defaults.total_budget_ms;
 
+  requestSignal?.throwIfAborted();
   for (const p of deps.providers) {
+    requestSignal?.throwIfAborted();
     if (req.provider && p.cfg.name !== req.provider) continue;
     const stepStart = Date.now();
 
@@ -83,13 +85,12 @@ export async function runSearch(req: SearchRequest, deps: RouterDeps): Promise<{
       continue;
     }
 
-    // D10：pre-flight 软闸门——本地计数达到 limit 时不再发请求（宁少花，不误杀；
-    // 计数有偏差，权威停发仍是上游 quota_exhausted 错误屏蔽）
+    // 等待前先跳过满额来源；等待后仍由 tryStart 同步检查并计数。
     if (p.cfg.quota.type !== 'unbounded' && p.cfg.quota.limit !== undefined
-      && deps.state.used(p.cfg.name) >= p.cfg.quota.limit) {
+      && deps.state.used(p.cfg.name, p.cfg) >= p.cfg.quota.limit) {
       chain.push({
         provider: p.cfg.name, outcome: 'skipped:quota_local',
-        detail: `${deps.state.used(p.cfg.name)}/${p.cfg.quota.limit}`, elapsedMs: 0,
+        detail: `${deps.state.used(p.cfg.name, p.cfg)}/${p.cfg.quota.limit}`, elapsedMs: 0,
       });
       continue;
     }
@@ -103,42 +104,67 @@ export async function runSearch(req: SearchRequest, deps: RouterDeps): Promise<{
     const degradeNote = p.adapter.note?.(req);
     if (degradeNote) notes.push(degradeNote);
 
-    if (!(await deps.state.pace(p.cfg.name, p.cfg, budgetLeft))) {
+    if (!(await deps.state.pace(p.cfg.name, p.cfg, deadline, requestSignal))) {
       chain.push({ provider: p.cfg.name, outcome: 'skipped:local_rate', elapsedMs: Date.now() - stepStart });
       continue;
     }
 
-    const timeoutMs = Math.min(deps.config.defaults.timeout_ms, deadline - Date.now());
+    requestSignal?.throwIfAborted();
+    const blockedAfterWait = deps.state.checkBlocked(p.cfg.name);
+    if (blockedAfterWait) {
+      chain.push({ provider: p.cfg.name, outcome: `skipped:${blockedAfterWait.reason}`, elapsedMs: Date.now() - stepStart });
+      continue;
+    }
+    const remainingMs = deadline - Date.now();
+    const timeoutMs = Math.min(deps.config.defaults.timeout_ms, remainingMs);
     if (timeoutMs <= 0) {
       chain.push({ provider: p.cfg.name, outcome: 'skipped:budget_exhausted', elapsedMs: Date.now() - stepStart });
       continue;
     }
     // D12：cache_fill=取足喂缓存（按请求计费源）；as_requested=按需取数（按结果计费源）
-    const fetchCount = p.cfg.fetch_policy === 'as_requested'
+    const fetchCount = p.cfg.fetch_policy === 'as_requested' || !deps.config.cache.enabled || !req.useCache || !!req.provider
       ? Math.min(req.maxResults, p.adapter.maxCount)
       : Math.min(deps.config.cache.store_size, p.adapter.maxCount);
 
+    const budgetLimited = remainingMs <= deps.config.defaults.timeout_ms;
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const signal = requestSignal ? AbortSignal.any([requestSignal, timeoutSignal]) : timeoutSignal;
+    if (!deps.state.tryStart(p.cfg.name, p.cfg)) {
+      chain.push({ provider: p.cfg.name, outcome: 'skipped:quota_local', elapsedMs: Date.now() - stepStart });
+      continue;
+    }
     try {
-      const raws = await p.adapter.search(req, fetchCount, AbortSignal.timeout(timeoutMs));
+      const raws = await p.adapter.search(req, fetchCount, signal);
+      requestSignal?.throwIfAborted();
+      if (Date.now() >= deadline) {
+        chain.push({ provider: p.cfg.name, outcome: 'skipped:budget_exhausted', elapsedMs: Date.now() - stepStart });
+        break;
+      }
       const elapsed = Date.now() - stepStart;
-      deps.state.tick(p.cfg.name, p.cfg); // D13：收到响应即计数（空结果多数源仍计费）
+      deps.state.recordSuccess(p.cfg.name);
       if (raws.length === 0) {
         // D3：no_results 不惩罚不屏蔽，直接切下一家
         chain.push({ provider: p.cfg.name, outcome: 'no_results', elapsedMs: elapsed });
         continue;
       }
-      deps.state.recordSuccess(p.cfg.name);
       const results: SearchResult[] = dedupe(raws).map(r => ({ ...r, provider: p.cfg.name }));
       return { results, meta: buildMeta(chain, p.cfg.name, Date.now() - startedAt, notes) };
     } catch (e) {
+      requestSignal?.throwIfAborted();
+      if ((budgetLimited && timeoutSignal.aborted) || Date.now() >= deadline) {
+        chain.push({ provider: p.cfg.name, outcome: 'skipped:budget_exhausted', elapsedMs: Date.now() - stepStart });
+        break;
+      }
       const err: ProviderError = e instanceof ProviderError
         ? e
-        : new ProviderError(p.cfg.name, 'network', String(e));
-      deps.state.block(p.cfg.name, err, p.cfg, deps.config.defaults);
+        : new ProviderError(p.cfg.name, timeoutSignal.aborted ? 'timeout' : 'network', timeoutSignal.aborted ? 'aborted' : String(e));
+      if (err.type === 'no_results') deps.state.recordSuccess(p.cfg.name);
+      else deps.state.block(p.cfg.name, err, p.cfg, deps.config.defaults);
       chain.push({ provider: p.cfg.name, outcome: err.type, detail: err.detail, elapsedMs: Date.now() - stepStart });
       continue;
     }
   }
 
+  requestSignal?.throwIfAborted();
   return { results: [], meta: buildMeta(chain, null, Date.now() - startedAt, notes) };
 }

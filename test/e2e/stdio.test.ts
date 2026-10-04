@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { REGISTRY } from '../../src/providers/registry.js';
@@ -12,11 +15,15 @@ import { REGISTRY } from '../../src/providers/registry.js';
 interface Msg { jsonrpc: string; id?: number; method?: string; result?: any; error?: any }
 
 function startServer(): { child: ChildProcess; send: (m: object) => void; messages: Msg[]; done: Promise<void> } {
+  const dir = mkdtempSync(join(tmpdir(), 'search-failover-stdio-'));
+  const config = join(dir, 'config.json');
+  writeFileSync(config, '{}');
   const child = spawn(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
     cwd: process.cwd(),
     env: {
       ...process.env,
       LOG: 'error',
+      SEARCH_FAILOVER_CONFIG: config,
       BOCHA_API_KEY: '', TAVILY_API_KEY: '', BRAVE_API_KEY: '', EXA_API_KEY: '',
       ZHIPU_API_KEY: '', QIANFAN_API_KEY: '', SERPER_API_KEY: '',
     },
@@ -38,11 +45,15 @@ function startServer(): { child: ChildProcess; send: (m: object) => void; messag
 
   const send = (m: object) => child.stdin!.write(`${JSON.stringify(m)}\n`);
   const done = new Promise<void>((resolve, reject) => {
-    child.on('exit', () => resolve());
+    child.on('exit', () => {
+      clearTimeout(timer);
+      rmSync(dir, { recursive: true, force: true });
+      resolve();
+    });
     child.stderr!.setEncoding('utf8');
     const errChunks: string[] = [];
     child.stderr!.on('data', (c: string) => errChunks.push(c));
-    setTimeout(() => reject(new Error(`server 未在时限内响应。stderr: ${errChunks.join('').slice(0, 2000)}`)), 15000);
+    const timer = setTimeout(() => reject(new Error(`server 未在时限内响应。stderr: ${errChunks.join('').slice(0, 2000)}`)), 15000);
   });
 
   return { child, send, messages, done };

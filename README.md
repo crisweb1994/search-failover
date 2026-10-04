@@ -2,12 +2,12 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-![npm](https://img.shields.io/npm/v/search-failover) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6) ![MCP](https://img.shields.io/badge/MCP-stdio-6E43B8) ![tests](https://img.shields.io/badge/tests-117%20passing-2EA44F) ![license](https://img.shields.io/badge/license-MIT-blue)
+![npm](https://img.shields.io/npm/v/search-failover) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6) ![MCP](https://img.shields.io/badge/MCP-stdio-6E43B8) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 搜索故障转移网关 MCP：对外只暴露一个 `search` 工具，内部池化 8 个搜索源——默认链为博查 → Tavily → Brave → Exa → DuckDuckGo，另有三家可选源（智谱 / 百度千帆 / Serper，配置文件显式开启），任一家限额、超时或空结果时自动切换下一家。你的 agent 从此不必关心"哪家搜索又没额度了"。
 
 > [!TIP]
-> 一个 API key 都不配也能跑：DuckDuckGo 不需要 key，永远垫底兜底。
+> 不配置 API key 时可尝试 DuckDuckGo；它不需要凭据，但受网络和反爬限制。
 
 
 
@@ -21,13 +21,13 @@ API key 放环境变量即可，配几个用几个，没配的源自动跳过：
 # —— 默认链（配 key 即自动加入）——
 export BOCHA_API_KEY=...    # 可选，中文搜索最强
 export TAVILY_API_KEY=...   # 可选，1000 次/月
-export BRAVE_API_KEY=...    # 可选，2000 次/月
-export EXA_API_KEY=...      # 可选，一次性 $10 credit，默认排第 4 省着用
+export BRAVE_API_KEY=...    # 可选，本地参考预算 1000 次/月
+export EXA_API_KEY=...      # 可选，月度 credits；本地预算 800 次，按需取数
 
 # —— 可选链（付费/一次性额度源：配置文件显式开启后才进链，见下节）——
 export ZHIPU_API_KEY=...       # 智谱 web_search，¥0.01/次（GLM Coding Plan 含次数）
 export QIANFAN_API_KEY=...     # 百度千帆 ai_search，1500 次/月免费（超额按量）
-export SERPER_API_KEY=...      # Serper.dev（Google 结果），一次性 2500 次
+export SERPER_API_KEY=...      # Serper.dev（Google 结果），本地一次性预算 2500 次（不等同 credits）
 ```
 
 ### 启用可选源（opt-in）
@@ -37,14 +37,14 @@ export SERPER_API_KEY=...      # Serper.dev（Google 结果），一次性 2500 
 ```json
 {
   "providers": [
-    { "name": "bocha",   "enabled": true, "priority": 1 },
-    { "name": "zhipu",   "enabled": true, "priority": 2, "quota": { "type": "one_time" } },
-    { "name": "tavily",  "enabled": true, "priority": 3 },
-    { "name": "qianfan", "enabled": true, "priority": 4, "quota": { "type": "monthly", "limit": 1500, "reset_day": 1 } },
-    { "name": "brave",   "enabled": true, "priority": 5 },
-    { "name": "serper",  "enabled": true, "priority": 6 },
-    { "name": "exa",     "enabled": true, "priority": 7 },
-    { "name": "duckduckgo", "enabled": true, "priority": 8 }
+    { "name": "bocha" },
+    { "name": "zhipu", "enabled": true },
+    { "name": "tavily" },
+    { "name": "qianfan", "enabled": true },
+    { "name": "brave" },
+    { "name": "serper", "enabled": true },
+    { "name": "exa" },
+    { "name": "duckduckgo" }
   ]
 }
 ```
@@ -75,9 +75,9 @@ codex plugin marketplace add crisweb1994/search-failover
 
 > [!IMPORTANT]
 > **密钥与可选源是两件事：**
-> - 不配任何 key 也能用——搜索自动走 DuckDuckGo 兜底（依赖本机 Node ≥ 20.10 与网络）。
+> - 不配 key 时尝试 DuckDuckGo（依赖本机 Node ≥ 20.10、网络和上游反爬状态）。
 > - 7 个 API key 一律走**宿主进程环境变量**：`BOCHA_API_KEY` / `TAVILY_API_KEY` / `BRAVE_API_KEY` / `EXA_API_KEY` / `ZHIPU_API_KEY` / `QIANFAN_API_KEY` / `SERPER_API_KEY`（DuckDuckGo 免 key）。启动宿主前 `export`，或写进各宿主配置的 `env` 字段。
-> - **配了 key ≠ 进链**：智谱 / 千帆 / Serper 是 opt-in 源，必须在 search-failover.json 里显式 `enabled: true` 才进链（见上文「启用可选源」）。只配 key 不改配置，`status` 里它依然不出现——这是预期行为。
+> - **配了 key ≠ 进链**：智谱 / 千帆 / Serper 是 opt-in 源，必须在 search-failover.json 里显式 `enabled: true` 才进链（见上文「启用可选源」）。只配 key 不改配置，默认名单中的这些来源会在 `status` 显示 `disabled`。
 > - 插件形态下进程 cwd 是插件缓存目录，`SEARCH_FAILOVER_CONFIG` 请用**绝对路径**。
 
 ### Cursor（MCP 配置）
@@ -201,24 +201,33 @@ ZCode 的 MCP schema 是严格的：`command` 必须是字符串（不能写数�
 | `use_cache`       | true | 同参数 1 小时内秒回                                                      |
 
 
-返回 `results[]`（title/url/snippet 必有）+ `meta`（`provider_used`、完整 `fallback_chain`、`cache_hit`、`note`）。全部源耗尽时返回空数组 + 决策链，**不报错**——"全网都没搜到"本身是有信息量的答案。
+返回 `results[]`（title/url 必有，snippet 可缺失）+ `meta`（`provider_used`、完整 `fallback_chain`、`cache_hit`、`note`）。空数组必须结合决策链解释：有错误、屏蔽、额度/预算跳过或无可用来源时，MCP 返回 `isError: true`；只有非空链内全部为合法 `no_results` 时才是正常空结果。
 
 `status` — 各源屏蔽状态与剩余时长、失败阶梯、配额用量与 90% 预警、缓存命中统计。
 
 ## 核心行为
 
 - **顺序兜底**：博查 → Tavily → Brave → Exa → DDG（可选源开启后穿插其中），第一家非空即胜出；任何错误不做同源重试，**failover 即重试**。
-- **六类错误分类**：每家 adapter 把真实信号映射为 `rate_limited / quota_exhausted / auth_failure / timeout / server_error / no_results`（如博查 403=余额不足、Brave 429 体区分秒级限速与月配额、智谱 429+1113=欠费、Serper 402=credit 耗尽、DDG 202 异常页=限流）。
+- **错误分类**：每家 adapter 把真实信号映射为 `rate_limited / quota_exhausted / auth_failure / timeout / network / server_error / request_error / no_results`（如博查 403=余额不足、Brave 429 体区分秒级限速与月配额、智谱 429+1113=欠费、Serper 402=credit 耗尽、DDG 202 异常页=限流）。
 - **阶梯冷却**：每源一个 `{blockedUntil, reason, failStreak}`，重复失败翻倍封顶，到点自然放行。无状态机、无熔断器。
-- **配额软闸门**：本地计数达到配置的 `limit` 时该源记 `skipped:quota_local` 直接跳过（不再发请求）；权威停发仍是上游配额类错误。计数口径为"收到响应即计数"（空结果多数源仍计费），进程内有效、不落盘。
-- **总预算 30s**：预算耗尽剩余源记 `skipped:budget_exhausted` 后立即返回，agent 永不挂死。
+- **配额软闸门**：本地计数达到配置的 `limit` 时该源记 `skipped:quota_local` 直接跳过（不再发请求）；权威停发仍是上游配额类错误。计数口径为“同步批准一次上游尝试即计数”，错误和批准后的取消也计数；缓存命中、等待中取消不计数。它是保守的本地请求预算，不模拟供应商账单。`monthly` 按本地时区/reset_day 重置，`one_time` 按进程累计；`status.used_requests` 为新字段，`used_this_month` 暂留同值兼容别名。
+- **总预算 30s**：预算耗尽记录 `skipped:budget_exhausted` 后结束；不保证全链都被尝试，也不因预算不足惩罚来源健康。取消请求会停止等待/请求且不继续兜底。
 - **opt-in 防误耗**：付费/一次性额度源（智谱/百度/Serper）默认不进链，须配置文件显式开启。
+
+
+条目省略字段时继承该来源的默认优先级、限速、额度与冷却；opt-in 源仍须显式 `enabled: true`。`providers: []` 表示空链；未知/重复来源及非法数值会在启动时报错。quota 类型不变时合并字段；切换类型则使用新配置，例如 `quota: { "type": "unbounded" }` 关闭本地额度限制。
+
+计数、限速、冷却与缓存均在单进程内；重启清零，不同宿主互不共享，也不合并其他应用对同一 key 的消耗。不要把本地 limit 当作账户余额或免费额度保证。
+
+价格依据（2026-10-04）：[Brave](https://api-dashboard.search.brave.com/documentation/pricing) 的 1000 是月度 credits 折算参考，本地 QPS 保持 1；[Exa](https://exa.ai/pricing) 按月重置 credits，800 仅为兼容的本地上限，不保证落在免费额度内。Serper 分档计费尚待实测，本地不按推测倍数扣费。
+
+DuckDuckGo 免 key，但受网络和反爬限制。`freshness` 由各源执行，日期语义和粒度可能不同，千帆 `day` 会忽略并提示。缓存命中保留获胜来源的降级说明。Exa、禁用缓存和指定来源的调用按需取数，不为潜在缓存命中预取。
 
 ## 开发
 
 ```bash
 npm run dev         # tsx 本地起服
-npm test            # 117 用例：单元 / 契约 / Router 集成 / stdio e2e
+npm test            # 单元 / 契约 / Router 集成 / stdio e2e
 npm run typecheck   # tsc --noEmit
 npm run build       # 产出 dist/
 ```

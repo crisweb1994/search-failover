@@ -37,9 +37,9 @@ const PROBES: Record<string, Probe> = {
     body: {
       messages: [{ role: 'user', content: 'search-failover probe' }],
       search_source: 'baidu_search_v2',
-      resource_type_filter: { web: { top_k: 8 } },
+      resource_type_filter: [{ type: 'web', top_k: 8 }],
     },
-    overflow: b => ({ ...b, resource_type_filter: { web: { top_k: 9999 } } }),
+    overflow: b => ({ ...b, resource_type_filter: [{ type: 'web', top_k: 9999 }] }),
   },
   serper: {
     env: 'SERPER_API_KEY',

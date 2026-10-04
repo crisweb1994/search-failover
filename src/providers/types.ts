@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { ProviderError, type Freshness, type ProviderAdapter, type RawResult, type SearchRequest } from '../types.js';
 
 export interface HttpResponseInfo {
@@ -9,19 +10,21 @@ export interface HttpResponseInfo {
 /** 防御上限：异常大的响应体（如 challenge 页堆积 JS）不得无界读入内存 */
 export const MAX_BODY_CHARS = 512 * 1024;
 
-async function readTextCapped(res: Response, limit = MAX_BODY_CHARS): Promise<string> {
+async function readTextCapped(res: Response, provider: string, limit = MAX_BODY_CHARS): Promise<string> {
   if (!res.body) return res.text();
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let out = '';
-  while (out.length < limit) {
+  for (;;) {
     const { done, value } = await reader.read();
-    if (done) return out + decoder.decode();
-    out += decoder.decode(value, { stream: true });
+    out += done ? decoder.decode() : decoder.decode(value, { stream: true });
+    if (out.length > limit) {
+      // 个别流的 cancel 不会 resolve，不阻塞错误返回。
+      void reader.cancel().catch(() => {});
+      throw new ProviderError(provider, 'server_error', 'response_too_large');
+    }
+    if (done) return out;
   }
-  // fire-and-forget：个别流实现（含 msw mock 流）的 cancel() 可能永不 resolve，不能 await
-  void reader.cancel().catch(() => {});
-  return out.slice(0, limit);
 }
 
 /**
@@ -34,21 +37,24 @@ export async function rawRequest(
   provider: string,
   signal?: AbortSignal,
 ): Promise<HttpResponseInfo> {
-  let res: Response;
   try {
-    res = await fetch(url, { ...init, signal });
+    const res = await fetch(url, { ...init, signal });
+    return { status: res.status, headers: res.headers, bodyText: await readTextCapped(res, provider) };
   } catch (e) {
+    if (e instanceof ProviderError) throw e;
     const name = e instanceof Error ? e.name : '';
-    if (name === 'TimeoutError' || name === 'AbortError') {
+    if (signal?.aborted || name === 'TimeoutError' || name === 'AbortError') {
       throw new ProviderError(provider, 'timeout', 'aborted');
     }
     throw new ProviderError(provider, 'network', String(e instanceof Error ? e.message : e));
   }
-  return { status: res.status, headers: res.headers, bodyText: await readTextCapped(res) };
 }
 
-/** 通用兜底：5xx → server_error；未识别 4xx → server_error 但 soft（不计入失败阶梯） */
+/** 通用兜底：400/422 → request_error；5xx → server_error；其余 4xx 保留 soft 冷却 */
 export function classifyDefault(res: HttpResponseInfo, provider: string): ProviderError {
+  if (res.status === 400 || res.status === 422) {
+    return new ProviderError(provider, 'request_error', `http_${res.status}`);
+  }
   if (res.status >= 500) {
     return new ProviderError(provider, 'server_error', `http_${res.status}`);
   }
@@ -58,21 +64,22 @@ export function classifyDefault(res: HttpResponseInfo, provider: string): Provid
 /** Retry-After 头：秒数或 HTTP-date */
 export function parseRetryAfterMs(headers: Headers): number | undefined {
   const v = headers.get('retry-after');
-  if (!v) return undefined;
+  if (!v?.trim()) return undefined;
   const n = Number(v);
-  if (!Number.isNaN(n)) return n * 1000;
+  if (!Number.isNaN(n)) return Number.isFinite(n * 1000) && n >= 0 ? n * 1000 : undefined;
+  if (/^[+-]?\d/.test(v) && !/[A-Za-z]/.test(v)) return undefined;
   const date = Date.parse(v);
-  return Number.isNaN(date) ? undefined : date - Date.now();
+  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
 }
 
 /** Brave X-RateLimit-Reset 头："1, 183945" → [秒级桶, 月配额桶] */
 export function parseRateLimitResetBuckets(headers: Headers): { first?: number; second?: number } {
   const v = headers.get('x-ratelimit-reset');
   if (!v) return {};
-  const parts = v.split(',').map(s => Number(s.trim()));
+  const parts = v.split(',').map(s => s.trim() ? Number(s.trim()) : NaN);
   return {
-    first: Number.isFinite(parts[0]) ? parts[0] : undefined,
-    second: Number.isFinite(parts[1]) ? parts[1] : undefined,
+    first: Number.isFinite(parts[0]) && parts[0]! >= 0 ? parts[0] : undefined,
+    second: Number.isFinite(parts[1]) && parts[1]! >= 0 ? parts[1] : undefined,
   };
 }
 
@@ -82,6 +89,16 @@ export function safeJson(text: string): any {
   } catch {
     return undefined;
   }
+}
+
+/** 成功响应严格验证实际消费的字段；错误体仍由 safeJson 尽力解析。 */
+export function parseSuccess<T>(text: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>, provider: string): T {
+  let json: unknown;
+  try { json = JSON.parse(text); }
+  catch { throw new ProviderError(provider, 'server_error', 'invalid_json'); }
+  const parsed = schema.safeParse(json);
+  if (!parsed.success) throw new ProviderError(provider, 'server_error', 'invalid_response');
+  return parsed.data;
 }
 
 export const CONTENT_MAX_CHARS = 2000;

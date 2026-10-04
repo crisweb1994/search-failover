@@ -151,7 +151,7 @@ const run = async () => {
     console.error(`⚠ 全链无结果——协议全过，但真实搜索为空（退出码 2）。链：${chain}`);
     return 2;
   }
-  if (!result.results.every((r) => r.title && r.url && r.snippet !== undefined)) fail('results 条目缺少必有字段 title/url/snippet');
+  if (!result.results.every((r) => r.title && r.url)) fail('results 条目缺少必有字段 title/url');
   if (stdoutDirty) fail('stdout 混入非 JSON-RPC 行');
   console.log('✓ 全握手冒烟通过：initialize → initialized → tools/list → status → 真实搜索');
   return 0;

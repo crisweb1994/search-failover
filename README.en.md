@@ -2,12 +2,12 @@
 
 [English](README.en.md) | [简体中文](README.md)
 
-![npm](https://img.shields.io/npm/v/search-failover) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6) ![MCP](https://img.shields.io/badge/MCP-stdio-6E43B8) ![tests](https://img.shields.io/badge/tests-117%20passing-2EA44F) ![license](https://img.shields.io/badge/license-MIT-blue)
+![npm](https://img.shields.io/npm/v/search-failover) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6) ![MCP](https://img.shields.io/badge/MCP-stdio-6E43B8) ![license](https://img.shields.io/badge/license-MIT-blue)
 
 A search failover gateway MCP: it exposes a single `search` tool and pools 8 search providers behind it — the default chain is Bocha → Tavily → Brave → Exa → DuckDuckGo, plus three opt-in providers (Zhipu / Baidu Qianfan / Serper, enabled explicitly via config file). Whenever a provider hits its quota, times out, or returns nothing, the gateway automatically falls through to the next one. Your agent never has to care about "which search API ran out of credits again."
 
 > [!TIP]
-> It runs with zero API keys: DuckDuckGo needs no key and always sits at the end of the chain as the free fallback.
+> With zero API keys, the gateway can try DuckDuckGo. It needs no credentials but remains subject to network and anti-bot restrictions.
 
 ## Quick Start
 
@@ -19,14 +19,14 @@ Put API keys in environment variables — configure as many as you like; provide
 # —— Default chain (configured keys join automatically) ——
 export BOCHA_API_KEY=...    # optional, best for Chinese-language search
 export TAVILY_API_KEY=...   # optional, 1,000 requests/month
-export BRAVE_API_KEY=...    # optional, 2,000 requests/month
-export EXA_API_KEY=...      # optional, one-time $10 credit, ranked 4th to conserve it
+export BRAVE_API_KEY=...    # optional, local reference budget: 1,000 attempts/month
+export EXA_API_KEY=...      # optional, monthly credits; local budget: 800 attempts, fetch on demand
 
 # —— Opt-in chain (paid / one-time-credit providers: join only after
 #    explicit enablement in the config file, see next section) ——
 export ZHIPU_API_KEY=...       # Zhipu web_search, ¥0.01/request (included in GLM Coding Plan)
 export QIANFAN_API_KEY=...     # Baidu Qianfan ai_search, 1,500 free requests/month (pay-as-you-go beyond)
-export SERPER_API_KEY=...      # Serper.dev (Google results), one-time 2,500 searches
+export SERPER_API_KEY=...      # Serper.dev (Google results), local lifetime budget: 2,500 attempts (not credits)
 ```
 
 ### Enabling opt-in providers
@@ -36,14 +36,14 @@ Paid / one-time-credit providers are **kept out of the chain by default** (so an
 ```json
 {
   "providers": [
-    { "name": "bocha",   "enabled": true, "priority": 1 },
-    { "name": "zhipu",   "enabled": true, "priority": 2, "quota": { "type": "one_time" } },
-    { "name": "tavily",  "enabled": true, "priority": 3 },
-    { "name": "qianfan", "enabled": true, "priority": 4, "quota": { "type": "monthly", "limit": 1500, "reset_day": 1 } },
-    { "name": "brave",   "enabled": true, "priority": 5 },
-    { "name": "serper",  "enabled": true, "priority": 6 },
-    { "name": "exa",     "enabled": true, "priority": 7 },
-    { "name": "duckduckgo", "enabled": true, "priority": 8 }
+    { "name": "bocha" },
+    { "name": "zhipu", "enabled": true },
+    { "name": "tavily" },
+    { "name": "qianfan", "enabled": true },
+    { "name": "brave" },
+    { "name": "serper", "enabled": true },
+    { "name": "exa" },
+    { "name": "duckduckgo" }
   ]
 }
 ```
@@ -72,9 +72,9 @@ Then install search-failover from the plugin directory in the ChatGPT desktop ap
 
 > [!IMPORTANT]
 > **Keys and opt-in providers are two different things:**
-> - It works with zero API keys — searches fall through to DuckDuckGo (requires a local Node ≥ 20.10 and network).
+> - Without API keys, searches try DuckDuckGo (requires local Node ≥ 20.10, network access and an unblocked upstream).
 > - The 7 API keys enter via **host process environment variables**: `BOCHA_API_KEY` / `TAVILY_API_KEY` / `BRAVE_API_KEY` / `EXA_API_KEY` / `ZHIPU_API_KEY` / `QIANFAN_API_KEY` / `SERPER_API_KEY` (DuckDuckGo needs none). `export` them before starting the host, or put them in the host config's `env` field.
-> - **A key alone does not join the chain**: Zhipu / Qianfan / Serper are opt-in and require `enabled: true` in search-failover.json (see "Enabling opt-in providers" above). With only a key and no config change, they won't appear in `status` — that is expected.
+> - **A key alone does not join the chain**: Zhipu / Qianfan / Serper are opt-in and require `enabled: true` in search-failover.json (see "Enabling opt-in providers" above). With only a key and no config change, these providers in the default list appear as `disabled` in `status`.
 > - As a plugin the process cwd is a plugin cache directory, so `SEARCH_FAILOVER_CONFIG` must be an **absolute path**.
 
 ### Cursor (MCP config)
@@ -194,24 +194,33 @@ After a global install you can point directly at the binary: `"command": "search
 | `provider`        | –       | Force a single provider (for debugging)                                                     |
 | `use_cache`       | true    | Same-argument queries served from cache within 1 hour                                        |
 
-Returns `results[]` (title/url/snippet always present) + `meta` (`provider_used`, the full `fallback_chain`, `cache_hit`, `note`). When every provider is exhausted it returns an empty array plus the decision chain — **never an error**: "nothing found anywhere" is itself an informative answer.
+Returns `results[]` (title/url required; snippet optional) + `meta` (`provider_used`, the full `fallback_chain`, `cache_hit`, `note`). Read the decision chain for empty results: errors, blocked/quota/budget skips, or no runnable providers set MCP `isError: true`. Only a nonempty chain containing exclusively valid `no_results` is a normal empty search.
 
 `status` — per-provider block state and remaining cooldown, failure streaks, quota usage with a 90% warning threshold, and cache hit statistics.
 
 ## Core Behavior
 
 - **Sequential failover**: Bocha → Tavily → Brave → Exa → DDG (opt-in providers slot in by priority). First non-empty result wins; no same-provider retries — **failover is the retry**.
-- **Six error classes**: each adapter maps real signals to `rate_limited / quota_exhausted / auth_failure / timeout / server_error / no_results` (e.g. Bocha 403 = out of balance, Brave 429 body distinguishes per-second throttling from monthly quota, Zhipu 429+1113 = arrears, Serper 402 = credit exhausted, DDG 202 anomaly page = throttled).
+- **Error classification**: each adapter maps real signals to `rate_limited / quota_exhausted / auth_failure / timeout / network / server_error / request_error / no_results` (e.g. Bocha 403 = out of balance, Brave 429 body distinguishes per-second throttling from monthly quota, Zhipu 429+1113 = arrears, Serper 402 = credit exhausted, DDG 202 anomaly page = throttled).
 - **Tiered cooldown**: each provider keeps `{blockedUntil, reason, failStreak}`; repeated failures double the cooldown up to a cap, then it lifts naturally at the deadline. No state machine, no circuit breaker.
-- **Quota soft gate**: once the local counter reaches the configured `limit`, the provider is skipped with `skipped:quota_local` (no request sent); the authoritative stop signal remains upstream quota errors. Counting happens on response receipt (most providers bill empty results too) and is process-local, not persisted.
-- **Total budget 30s**: when the budget runs out, remaining providers are marked `skipped:budget_exhausted` and the call returns immediately — the agent never hangs.
+- **Quota soft gate**: once the local counter reaches the configured `limit`, the provider is skipped with `skipped:quota_local` (no request sent); the authoritative stop signal remains upstream quota errors. Each synchronously admitted upstream attempt counts, including errors and cancellation after admission. Cache hits and cancellation while waiting do not. This is a conservative local request budget, not a bill. `monthly` resets at local-time reset_day; `one_time` accumulates for the process lifetime. `status.used_requests` is the new field; `used_this_month` remains a deprecated equal-value alias.
+- **Total budget 30s**: exhaustion records `skipped:budget_exhausted` and ends the search without penalizing provider health. Not every provider is guaranteed a turn. Client cancellation stops waiting/requests and prevents further fallback.
 - **Opt-in against accidental drain**: paid / one-time-credit providers (Zhipu/Qianfan/Serper) stay out of the chain until explicitly enabled in the config file.
+
+
+Omitted provider fields inherit that source's default priority, pacing, quota and cooldown. Opt-in providers still need explicit `enabled: true`. `providers: []` is an empty chain; unknown/duplicate names and invalid numbers fail at startup. Quota fields merge within the same type; changing type replaces them. Use `quota: { "type": "unbounded" }` to disable the local request limit.
+
+Counters, pacing, cooldowns and cache are process-local, reset on restart, and are not shared across hosts or other applications using the same key. Local limits are not account balances or free-tier guarantees.
+
+Pricing references (2026-10-04): [Brave](https://api-dashboard.search.brave.com/documentation/pricing)'s 1,000 attempts are a reference derived from monthly credits; local QPS stays at 1. [Exa](https://exa.ai/pricing) credits reset monthly; 800 is a retained local cap, not a guarantee of free usage. Serper credit tiers still require live verification; no guessed cost multiplier is applied.
+
+DuckDuckGo needs no key but is subject to network and anti-bot restrictions. Providers apply different freshness semantics; Qianfan ignores `day` with a note. Cache hits retain the winning provider's degradation notes. Exa, cache-disabled requests and forced-provider requests fetch only the requested count.
 
 ## Development
 
 ```bash
 npm run dev         # start locally via tsx
-npm test            # 117 cases: unit / contract / router integration / stdio e2e
+npm test            # unit / contract / router integration / stdio e2e
 npm run typecheck   # tsc --noEmit
 npm run build       # emit dist/
 ```

@@ -5,9 +5,9 @@ import { defaultProviderConfigs } from './providers/registry.js';
 
 const quotaSchema = z.object({
   type: z.enum(['monthly', 'one_time', 'unbounded']).default('unbounded'),
-  limit: z.number().optional(),
+  limit: z.number().int().nonnegative().optional(),
   reset_day: z.number().int().min(1).max(31).optional(),
-  quota_retry_s: z.number().default(21600),
+  quota_retry_s: z.number().finite().nonnegative().default(21600),
 });
 
 export const providerSchema = z.object({
@@ -15,33 +15,33 @@ export const providerSchema = z.object({
   enabled: z.boolean().default(true),
   priority: z.number().int().default(100),
   quota: quotaSchema.default({}),
-  /** 本地 QPS 限制（Brave 免费档 1 QPS），请求间隔不足时本地补齐等待 */
-  local_qps: z.number().optional(),
+  /** 本地 QPS 限制（Brave 默认保守设为 1 QPS），请求间隔不足时本地补齐等待 */
+  local_qps: z.number().finite().positive().optional(),
   /** 请求最小间隔毫秒（DDG 礼貌间隔） */
-  min_interval_ms: z.number().optional(),
+  min_interval_ms: z.number().int().nonnegative().optional(),
   /** 该源冷却时长上限覆盖（秒）；DDG 被封需要 6h */
-  cooldown_max_s: z.number().optional(),
+  cooldown_max_s: z.number().finite().nonnegative().optional(),
   /**
    * 取数策略（D12）：cache_fill=一次取足 min(store_size, maxCount) 喂缓存（按请求计费源）；
-   * as_requested=只取 maxResults（按结果数计费源，如 Firecrawl，Phase 2 起用）。
+   * as_requested=只取 maxResults（按结果数计费源，如 Exa）。
    */
   fetch_policy: z.enum(['cache_fill', 'as_requested']).default('cache_fill'),
 });
 
 const defaultsSchema = z.object({
   max_results: z.number().int().min(1).max(20).default(8),
-  timeout_ms: z.number().default(10000),
-  total_budget_ms: z.number().default(30000),
-  cooldown_default_s: z.number().default(60),
-  cooldown_max_s: z.number().default(3600),
+  timeout_ms: z.number().int().positive().default(10000),
+  total_budget_ms: z.number().int().positive().default(30000),
+  cooldown_default_s: z.number().finite().nonnegative().default(60),
+  cooldown_max_s: z.number().finite().nonnegative().default(3600),
 });
 
 const cacheSchema = z.object({
   enabled: z.boolean().default(true),
   store_size: z.number().int().min(1).max(20).default(20),
-  ttl_s: z.number().default(3600),
-  ttl_fresh_s: z.number().default(900),
-  max_entries: z.number().int().default(512),
+  ttl_s: z.number().finite().nonnegative().default(3600),
+  ttl_fresh_s: z.number().finite().nonnegative().default(900),
+  max_entries: z.number().int().nonnegative().default(512),
 });
 
 export const configSchema = z.object({
@@ -56,6 +56,25 @@ export type AppConfig = z.infer<typeof configSchema>;
 /** 默认配置由注册表生成（D15：名单单一事实来源；opt-in 源 enabled=false） */
 export function defaultProviders(): ProviderCfg[] {
   return defaultProviderConfigs();
+}
+
+/** 名单由用户决定；仅继承所列来源的默认字段，不做递归合并。 */
+export function parseConfig(input: unknown): AppConfig {
+  const raw = z.object({ providers: z.array(z.object({
+    name: z.string(), quota: quotaSchema.partial().optional(),
+  }).passthrough()).optional() }).passthrough().parse(input);
+  const defaults = defaultProviders();
+  const seen = new Set<string>();
+  const providers = raw.providers?.map(p => {
+    const base = defaults.find(d => d.name === p.name);
+    if (!base) throw new Error(`未知来源: ${p.name}`);
+    if (seen.has(p.name)) throw new Error(`重复来源: ${p.name}`);
+    seen.add(p.name);
+    const quota = p.quota?.type && p.quota.type !== base.quota.type
+      ? p.quota : { ...base.quota, ...p.quota };
+    return { ...base, ...p, quota };
+  }) ?? defaults;
+  return configSchema.parse({ ...raw, providers });
 }
 
 function die(message: string): never {
@@ -84,11 +103,9 @@ export function loadConfig(): AppConfig {
     // 默认路径不存在 → 全默认
   }
 
-  if (!raw['providers']) raw['providers'] = defaultProviders();
-
-  const parsed = configSchema.safeParse(raw);
-  if (!parsed.success) {
-    die(parsed.error.issues.map(i => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; '));
+  try {
+    return parseConfig(raw);
+  } catch (err) {
+    die(String(err instanceof Error ? err.message : err));
   }
-  return parsed.data;
 }

@@ -1,9 +1,17 @@
+import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, rawRequest, safeJson, snippetFrom, truncateContent,
+  classifyDefault, FRESHNESS, rawRequest, safeJson, parseSuccess, snippetFrom, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
+
+const itemSchema = z.object({
+  title: z.string().min(1),
+  link: z.string().min(1),
+  content: z.string().nullish().transform(v => v ?? undefined),
+  publish_date: z.string().nullish().transform(v => v ?? undefined),
+});
 
 const ENDPOINT = 'https://open.bigmodel.cn/api/paas/v4/web_search';
 const QUERY_MAX_CHARS = 70;
@@ -45,20 +53,18 @@ export const zhipu: ProviderAdapter = {
     }, 'zhipu', signal);
 
     if (res.status !== 200) throw classify(res);
-    const json = safeJson(res.bodyText);
-    const items: any[] = json?.search_result ?? [];
-    return items
-      .filter(it => it?.title && it?.link)
-      .map((it): RawResult => {
-        const content = truncateContent(it.content);
-        return {
-          title: String(it.title),
-          url: String(it.link),
-          snippet: snippetFrom(content),
-          content,
-          publishedDate: it.publish_date ?? undefined,
-        };
-      });
+    const json = parseSuccess(res.bodyText, z.object({ search_result: z.array(itemSchema) }), 'zhipu');
+    const items = json.search_result;
+    return items.map((it): RawResult => {
+      const content = truncateContent(it.content);
+      return {
+        title: it.title,
+        url: it.link,
+        snippet: snippetFrom(content),
+        content,
+        publishedDate: it.publish_date ?? undefined,
+      };
+    });
   },
 };
 
@@ -75,7 +81,7 @@ function classify(res: HttpResponseInfo): ProviderError {
   }
   if (code === 1701) return new ProviderError('zhipu', 'rate_limited', 'code_1701_concurrency');
   if (code === 1703) return new ProviderError('zhipu', 'no_results', 'code_1703_no_data');
-  if (code === 1210) return new ProviderError('zhipu', 'server_error', 'code_1210_bad_param', { soft: true });
+  if (code === 1210) return new ProviderError('zhipu', 'request_error', 'code_1210_bad_param');
   if (code === 1702) return new ProviderError('zhipu', 'server_error', 'code_1702_engine_unavailable', { soft: true });
   return classifyDefault(res, 'zhipu');
 }

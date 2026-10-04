@@ -4,8 +4,8 @@ import { useMsw, expectProviderError } from '../helpers.js';
 import { qianfan } from '../../src/providers/qianfan.js';
 
 /**
- * 契约 fixture 为文档推断结构（provider-expansion-spec §3.2，响应容器字段
- * 与错误码分类均为 probe 必答项）——待 scripts/probe.mts 实测后校准（D16）。
+ * 基于官方接口示例的构造 fixture，并非真实 probe 响应。
+ * https://cloud.baidu.com/doc/qianfan/s/2mh4su4uy （2026-10-04 核对）
  */
 const server = useMsw();
 beforeAll(() => { process.env['QIANFAN_API_KEY'] = 'test-key'; });
@@ -13,9 +13,9 @@ beforeAll(() => { process.env['QIANFAN_API_KEY'] = 'test-key'; });
 const URL_API = 'https://qianfan.baidubce.com/v2/ai_search/web_search';
 
 const OK = {
-  search_result: [
-    { title: '百度结果', url: 'https://example.com/a', snippet: '摘要', content: '正文', date: '2026-09-01', rerank_score: 0.87 },
-    { title: '无分数结果', url: 'https://example.com/b', snippet: 's2', content: 'c2' },
+  references: [
+    { type: 'web', title: '百度结果', url: 'https://example.com/a', snippet: '摘要', content: '正文', date: '2026-09-01', rerank_score: 0.87 },
+    { type: 'web', title: '无分数结果', url: 'https://example.com/b', snippet: 's2', content: 'c2' },
   ],
 };
 
@@ -45,13 +45,13 @@ describe('qianfan adapter 契约', () => {
     await call();
     expect(body['messages']).toEqual([{ role: 'user', content: 'q' }]);
     expect(body['search_source']).toBe('baidu_search_v2');
-    expect(body['resource_type_filter']).toEqual({ web: { top_k: 20 } });
+    expect(body['resource_type_filter']).toEqual([{ type: 'web', top_k: 20 }]);
 
     await call({ query: '字'.repeat(80) }); // 160 单位 → 截到 72 单位 = 36 个汉字
     expect([...body['messages'][0]['content'] as string]).toHaveLength(36);
   });
 
-  it('freshness：week → recency 枚举；day → page_time 区间；多域名原生白名单', async () => {
+  it('freshness：week → recency 枚举；day → 明确降级；多域名原生白名单', async () => {
     let body: any;
     server.use(http.post(URL_API, async ({ request }) => {
       body = await request.json();
@@ -61,14 +61,15 @@ describe('qianfan adapter 契约', () => {
     expect(body['search_recency_filter']).toBe('week');
 
     await call({ freshness: 'day', includeDomains: ['a.com', 'b.com'] });
+    expect(body['search_recency_filter']).toBeUndefined();
+    expect(qianfan.note?.({ query: 'q', maxResults: 8, useCache: false, freshness: 'day' })).toContain('已忽略');
     expect(body['search_filter']).toEqual({
-      range: { page_time: { gte: 'now-1d' } },
       match: { site: ['a.com', 'b.com'] },
     });
   });
 
   it('空结果 → []', async () => {
-    server.use(http.post(URL_API, () => HttpResponse.json({ search_result: [] })));
+    server.use(http.post(URL_API, () => HttpResponse.json({ references: [] })));
     expect(await call()).toEqual([]);
   });
 
@@ -82,11 +83,10 @@ describe('qianfan adapter 契约', () => {
     await expectProviderError(call(), 'rate_limited');
   });
 
-  it('400 → soft server_error；500 → server_error', async () => {
+  it('400 → request_error；500 → server_error', async () => {
     server.use(http.post(URL_API, () =>
       new HttpResponse(JSON.stringify({ request_id: 'x', code: 400, message: 'bad' }), { status: 400 })));
-    const err = await expectProviderError(call(), 'server_error');
-    expect(err.soft).toBe(true);
+    await expectProviderError(call(), 'request_error');
 
     server.use(http.post(URL_API, () => new HttpResponse(null, { status: 500 })));
     await expectProviderError(call(), 'server_error');

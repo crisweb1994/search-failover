@@ -14,10 +14,10 @@ import { log } from './logger.js';
 
 const SEARCH_DESCRIPTION = [
   '聚合网页搜索（顺序容灾，任一来源限额、超时或空结果时自动切换下一家）。',
-  '每条结果必有 title/url/snippet；content/publishedDate/score 为部分源提供的可选字段（可能缺失，缺失时请自行访问 url）。',
-  'publishedDate 尽力而为、不保证精确；严格时间过滤请用 freshness 参数（服务端过滤）。',
+  '每条结果必有 title/url；snippet/content/publishedDate/score 为部分源提供的可选字段（可能缺失，缺失时请自行访问 url）。',
+  'publishedDate 尽力而为；freshness 由各源执行，粒度和日期语义可能不同（千帆 day 会忽略并提示）。',
   `仅搜特定域名用 include_domains（${domainFilterDescribe()}）。`,
-  '同参数 1 小时内命中缓存（use_cache=false 可关闭）；返回 results: [] 表示全部源均未搜到，可改写查询后重试。',
+  '同参数 1 小时内命中缓存（use_cache=false 可关闭）；空结果需查看 fallback_chain；错误或跳过导致搜索未完成时 isError=true。总预算内不保证尝试全部来源；DDG 免 key，但可用性取决于网络和反爬限制。',
   defaultChainDescribe(),
 ].join('');
 

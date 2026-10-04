@@ -74,11 +74,10 @@ describe('Brave adapter 契约', () => {
     await expectProviderError(call(), 'auth_failure');
   });
 
-  it('422 + VALIDATION → soft server_error', async () => {
+  it('422 + VALIDATION → request_error', async () => {
     server.use(http.get(URL_BASE, () =>
       new HttpResponse(JSON.stringify({ error: { code: 'VALIDATION' } }), { status: 422 })));
-    const err = await expectProviderError(call(), 'server_error');
-    expect(err.soft).toBe(true);
+    await expectProviderError(call(), 'request_error');
   });
 
   it('500 → server_error', async () => {

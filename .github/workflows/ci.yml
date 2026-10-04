@@ -1,0 +1,28 @@
+name: CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run plugin:check
+      - run: npm run build
+      - run: npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.10.0
+      - name: Install packed production runtime
+        run: npm install --prefix "$RUNNER_TEMP/runtime" "$RUNNER_TEMP"/search-failover-*.tgz --omit=dev --ignore-scripts
+      - name: Minimum Node stdio search smoke
+        run: node scripts/runtime-smoke.mjs "$RUNNER_TEMP/runtime/node_modules/search-failover/dist/index.js"

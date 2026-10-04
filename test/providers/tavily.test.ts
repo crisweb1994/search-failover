@@ -66,14 +66,13 @@ describe('Tavily adapter 契约', () => {
     }
   });
 
-  it('401 → auth_failure；422 → soft server_error；500 → server_error', async () => {
+  it('401 → auth_failure；422 → request_error；500 → server_error', async () => {
     server.use(http.post('https://api.tavily.com/search', () => new HttpResponse(null, { status: 401 })));
     await expectProviderError(call(), 'auth_failure');
 
     server.use(http.post('https://api.tavily.com/search', () =>
       new HttpResponse(JSON.stringify({ detail: [{ loc: ['body', 'query'] }] }), { status: 422 })));
-    const soft = await expectProviderError(call(), 'server_error');
-    expect(soft.soft).toBe(true);
+    await expectProviderError(call(), 'request_error');
 
     server.use(http.post('https://api.tavily.com/search', () => new HttpResponse(null, { status: 500 })));
     await expectProviderError(call(), 'server_error');

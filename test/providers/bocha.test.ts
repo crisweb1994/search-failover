@@ -66,11 +66,10 @@ describe('博查 adapter 契约', () => {
     await expectProviderError(call(), 'server_error');
   });
 
-  it('400 → server_error 且 soft（不增失败阶梯）', async () => {
+  it('400 → request_error（不屏蔽来源）', async () => {
     server.use(http.post('https://api.bochaai.com/v1/web-search', () =>
       new HttpResponse(JSON.stringify({ msg: 'Missing parameter query' }), { status: 400 })));
-    const err = await expectProviderError(call(), 'server_error');
-    expect(err.soft).toBe(true);
+    await expectProviderError(call(), 'request_error');
   });
 
   it('超时 → timeout', async () => {

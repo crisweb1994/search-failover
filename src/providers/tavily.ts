@@ -1,9 +1,18 @@
+import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, parseRetryAfterMs, rawRequest, safeJson, snippetFrom, truncateContent,
+  classifyDefault, FRESHNESS, parseRetryAfterMs, rawRequest, parseSuccess, snippetFrom, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
+
+const itemSchema = z.object({
+  title: z.string().min(1),
+  url: z.string().min(1),
+  content: z.string().nullish().transform(v => v ?? undefined),
+  published_date: z.string().nullish().transform(v => v ?? undefined),
+  score: z.number().nullish().transform(v => v ?? undefined),
+});
 
 const ENDPOINT = 'https://api.tavily.com/search';
 
@@ -31,21 +40,19 @@ export const tavily: ProviderAdapter = {
     }, 'tavily', signal);
 
     if (res.status !== 200) throw classify(res);
-    const json = safeJson(res.bodyText);
-    const items: any[] = json?.results ?? [];
-    return items
-      .filter(it => it?.title && it?.url)
-      .map((it): RawResult => {
-        const content = truncateContent(it.content);
-        return {
-          title: String(it.title),
-          url: String(it.url),
-          snippet: snippetFrom(content),
-          content,
-          score: typeof it.score === 'number' ? it.score : undefined,
-          publishedDate: it.published_date ?? undefined,
-        };
-      });
+    const json = parseSuccess(res.bodyText, z.object({ results: z.array(itemSchema) }), 'tavily');
+    const items = json.results;
+    return items.map((it): RawResult => {
+      const content = truncateContent(it.content);
+      return {
+        title: it.title,
+        url: it.url,
+        snippet: snippetFrom(content),
+        content,
+        score: typeof it.score === 'number' ? it.score : undefined,
+        publishedDate: it.published_date ?? undefined,
+      };
+    });
   },
 };
 

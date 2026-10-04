@@ -124,10 +124,10 @@ describe('配额计数', () => {
   it('tick 累计、quota_warning 达 90% 置位', () => {
     const s = new GatewayState();
     const cfg = p({ quota: { type: 'monthly', limit: 10, reset_day: 1 } });
-    for (let i = 0; i < 8; i++) s.tick('test', cfg);
-    expect(s.used('test')).toBe(8);
+    for (let i = 0; i < 8; i++) s.tryStart('test', cfg);
+    expect(s.used('test', cfg)).toBe(8);
     expect(s.quotaWarning('test', cfg)).toBe(false);
-    s.tick('test', cfg);
+    s.tryStart('test', cfg);
     expect(s.quotaWarning('test', cfg)).toBe(true);
   });
 
@@ -135,15 +135,15 @@ describe('配额计数', () => {
     const s = new GatewayState();
     const cfg = p({ quota: { type: 'monthly', limit: 100, reset_day: 31 } });
     // 无 clamp 时 9/31 滚成 10/1，10/1 请求即开新 period；clamp 后窗口起点 9/30，10 月内同一窗口
-    s.tick('test', cfg, new Date('2026-10-01T10:00:00').getTime());
-    s.tick('test', cfg, new Date('2026-10-15T10:00:00').getTime());
-    expect(s.used('test')).toBe(2);
+    s.tryStart('test', cfg, new Date('2026-10-01T10:00:00').getTime());
+    s.tryStart('test', cfg, new Date('2026-10-15T10:00:00').getTime());
+    expect(s.used('test', cfg, new Date('2026-10-15T10:00:00').getTime())).toBe(2);
     // 重置点 10/31 00:00 已过 → 新窗口重新计数
-    s.tick('test', cfg, new Date('2026-10-31T10:00:00').getTime());
-    expect(s.used('test')).toBe(1);
+    s.tryStart('test', cfg, new Date('2026-10-31T10:00:00').getTime());
+    expect(s.used('test', cfg, new Date('2026-10-31T10:00:00').getTime())).toBe(1);
     // 11 月初仍属 [10/31, 11/30) 窗口，继续累计
-    s.tick('test', cfg, new Date('2026-11-02T10:00:00').getTime());
-    expect(s.used('test')).toBe(2);
+    s.tryStart('test', cfg, new Date('2026-11-02T10:00:00').getTime());
+    expect(s.used('test', cfg, new Date('2026-11-02T10:00:00').getTime())).toBe(2);
   });
 });
 
@@ -167,5 +167,40 @@ describe('默认配置完整性（注册表派生，D15）', () => {
     expect(byName['serper']?.enabled).toBe(false);
     expect(byName['duckduckgo']?.cooldown_max_s).toBe(21600);
     expect(byName['qianfan']?.local_qps).toBe(1);
+  });
+});
+
+describe('请求预算周期与并发等待', () => {
+  it('monthly 满额后读取即跨月恢复；one_time 和 unbounded 跨月累计', () => {
+    const before = new Date('2026-09-30T23:59:59').getTime();
+    const after = new Date('2026-10-01T00:00:00').getTime();
+    for (const type of ['monthly', 'one_time', 'unbounded']) {
+      const s = new GatewayState();
+      const cfg = p({ quota: { type, limit: 1, reset_day: 1 } });
+      expect(s.tryStart('test', cfg, before)).toBe(true);
+      expect(s.used('test', cfg, after)).toBe(type === 'monthly' ? 0 : 1);
+      expect(s.tryStart('test', cfg, after)).toBe(type !== 'one_time');
+    }
+  });
+  it('三个并发等待按 100ms 间隔放行', async () => {
+    const s = new GatewayState();
+    const cfg = p({ min_interval_ms: 100 });
+    const starts: number[] = [];
+    await Promise.all([0, 1, 2].map(async () => {
+      expect(await s.pace('test', cfg, Date.now() + 2000)).toBe(true);
+      starts.push(Date.now());
+    }));
+    expect(starts[1]! - starts[0]!).toBeGreaterThanOrEqual(100);
+    expect(starts[2]! - starts[1]!).toBeGreaterThanOrEqual(100);
+  });
+  it('取消等待不预约未来时隙；期限不足不放行', async () => {
+    const s = new GatewayState();
+    const cfg = p({ min_interval_ms: 100 });
+    await s.pace('test', cfg, Date.now() + 1000);
+    const controller = new AbortController();
+    const pending = s.pace('test', cfg, Date.now() + 1000, controller.signal);
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(await s.pace('test', cfg, Date.now() + 10)).toBe(false);
   });
 });

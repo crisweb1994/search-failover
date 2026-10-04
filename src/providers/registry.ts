@@ -61,7 +61,8 @@ export const REGISTRY: Record<string, ProviderRegistration> = {
   },
   brave: {
     adapter: brave, credential: CREDENTIALS['brave']!, defaultEnabled: true, priority: 5,
-    quotaDefault: { type: 'monthly', limit: 2000, reset_day: 15, quota_retry_s: 21600 },
+    // 2026-10-04 api-dashboard.search.brave.com/documentation/pricing：月度 credits 折算参考，非余额。
+    quotaDefault: { type: 'monthly', limit: 1000, reset_day: 15, quota_retry_s: 21600 },
     extraDefaults: { local_qps: 1 },
     capabilities: { freshness: true, includeDomains: 'single' },
   },
@@ -73,7 +74,9 @@ export const REGISTRY: Record<string, ProviderRegistration> = {
   },
   exa: {
     adapter: exa, credential: CREDENTIALS['exa']!, defaultEnabled: true, priority: 7,
-    quotaDefault: { type: 'one_time', limit: 800, quota_retry_s: 21600 },
+    // 2026-10-04 exa.ai/pricing：月度 credits；800 仅为兼容的本地请求预算。
+    quotaDefault: { type: 'monthly', limit: 800, reset_day: 1, quota_retry_s: 21600 },
+    extraDefaults: { fetch_policy: 'as_requested' },
     capabilities: { freshness: true, includeDomains: 'native' },
   },
   duckduckgo: {
