@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AppConfig, ProviderCfg } from '../config.js';
+import type { AppConfig } from '../config.js';
 import { cacheKey, normalizeQuery, ResultCache } from '../cache.js';
 import { runSearch, type ProviderEntry } from '../router.js';
 import type { GatewayState } from '../state.js';
@@ -18,7 +18,6 @@ export const searchInput = {
 
 export interface ToolDeps {
   config: AppConfig;
-  allProviders: ProviderCfg[];
   providers: ProviderEntry[];
   state: GatewayState;
   cache: ResultCache;
@@ -78,7 +77,7 @@ export function makeSearchHandler(deps: ToolDeps) {
           // D12 配套：as_requested 源的短结果入缓存会毒化后续更大 max_results 的命中
           // （缓存 key 不含条数、命中只截断不补取），仅取满时才写
           const winner = meta.provider_used
-            ? deps.allProviders.find(p => p.name === meta.provider_used)
+            ? deps.config.providers.find(p => p.name === meta.provider_used)
             : undefined;
           const cacheable = !winner || winner.fetch_policy !== 'as_requested'
             || results.length >= deps.config.cache.store_size;

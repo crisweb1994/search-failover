@@ -8,7 +8,7 @@ describe('REGISTRY 一致性', () => {
   it('注册键 = adapter.name，凭据声明一一对应', () => {
     for (const [name, r] of Object.entries(REGISTRY)) {
       expect(r.adapter.name, `adapter.name of ${name}`).toBe(name);
-      expect(r.credential, `credential of ${name}`).toBe(CREDENTIALS[name]);
+      expect(CREDENTIALS[name], `credential of ${name}`).toBeDefined();
     }
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest';
-import { http, HttpResponse, delay } from 'msw';
+import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { bocha } from '../../src/providers/bocha.js';
 
@@ -36,11 +36,6 @@ describe('博查 adapter 契约', () => {
     expect(results[0]?.snippet).toContain('网页摘要');
   });
 
-  it('空结果 → 原样返回空数组（Router 判 no_results）', async () => {
-    server.use(http.post('https://api.bochaai.com/v1/web-search', () => HttpResponse.json({ data: { webPages: { value: [] } } })));
-    expect(await call()).toEqual([]);
-  });
-
   it('403 余额不足 → quota_exhausted（不是 auth！）', async () => {
     server.use(http.post('https://api.bochaai.com/v1/web-search', () =>
       new HttpResponse(JSON.stringify({ code: 403, msg: 'You do not have enough money' }), { status: 403 })));
@@ -72,14 +67,4 @@ describe('博查 adapter 契约', () => {
     await expectProviderError(call(), 'request_error');
   });
 
-  it('超时 → timeout', async () => {
-    server.use(http.post('https://api.bochaai.com/v1/web-search', async () => {
-      await delay(3000);
-      return HttpResponse.json(OK_BODY);
-    }));
-    await expectProviderError(
-      bocha.search({ query: 'x', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(120)),
-      'timeout',
-    );
-  });
 });

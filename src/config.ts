@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { log } from './logger.js';
-import { defaultProviderConfigs } from './providers/registry.js';
+import { defaultProviderConfigs as defaultProviders } from './providers/registry.js';
 
 const quotaSchema = z.object({
   type: z.enum(['monthly', 'one_time', 'unbounded']).default('unbounded'),
@@ -29,7 +29,6 @@ export const providerSchema = z.object({
 });
 
 const defaultsSchema = z.object({
-  max_results: z.number().int().min(1).max(20).default(8),
   timeout_ms: z.number().int().positive().default(10000),
   total_budget_ms: z.number().int().positive().default(30000),
   cooldown_default_s: z.number().finite().nonnegative().default(60),
@@ -54,9 +53,7 @@ export type ProviderCfg = z.infer<typeof providerSchema>;
 export type AppConfig = z.infer<typeof configSchema>;
 
 /** 默认配置由注册表生成（D15：名单单一事实来源；opt-in 源 enabled=false） */
-export function defaultProviders(): ProviderCfg[] {
-  return defaultProviderConfigs();
-}
+export { defaultProviders };
 
 /** 名单由用户决定；仅继承所列来源的默认字段，不做递归合并。 */
 export function parseConfig(input: unknown): AppConfig {

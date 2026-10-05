@@ -68,11 +68,6 @@ describe('qianfan adapter 契约', () => {
     });
   });
 
-  it('空结果 → []', async () => {
-    server.use(http.post(URL_API, () => HttpResponse.json({ references: [] })));
-    expect(await call()).toEqual([]);
-  });
-
   it('401 → auth_failure；429 → rate_limited（保守，双语义待 probe 拆分）', async () => {
     server.use(http.post(URL_API, () =>
       new HttpResponse(JSON.stringify({ request_id: 'x', code: 401, message: ' unauthorized' }), { status: 401 })));

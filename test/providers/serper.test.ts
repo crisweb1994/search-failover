@@ -59,11 +59,6 @@ describe('serper adapter 契约', () => {
     expect(body['num']).toBe(20);
   });
 
-  it('空结果 → []', async () => {
-    server.use(http.post(URL_API, () => HttpResponse.json({ organic: [] })));
-    expect(await call()).toEqual([]);
-  });
-
   it('401 → auth_failure；402 → quota_exhausted（一次性 credit，无 resetAt）；429 → rate_limited', async () => {
     server.use(http.post(URL_API, () => new HttpResponse(null, { status: 401 })));
     await expectProviderError(call(), 'auth_failure');

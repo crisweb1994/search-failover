@@ -18,9 +18,6 @@ const itemSchema = z.object({
 const ENDPOINT = 'https://qianfan.baidubce.com/v2/ai_search/web_search';
 const QUERY_MAX_UNITS = 72; // 官方口径：query ≤72 单位，汉字计 2
 
-/** day 不发送未经验证的日期范围，明确提示降级。 */
-const RECENCY: Record<string, string> = { week: 'week', month: 'month', year: 'year' };
-
 const CJK = /[\u2E80-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F]/;
 
 export function countUnits(s: string): number {
@@ -61,13 +58,12 @@ export const qianfan: ProviderAdapter = {
       resource_type_filter: [{ type: 'web', top_k: Math.min(fetchCount, 50) }],
     };
 
-    const filter: Record<string, unknown> = {};
-    if (req.freshness && req.freshness !== 'day') body['search_recency_filter'] = RECENCY[req.freshness];
+    // day 不发送未经验证的日期范围，明确提示降级。
+    if (req.freshness && req.freshness !== 'day') body['search_recency_filter'] = req.freshness;
     if (req.includeDomains?.length) {
       // 原生多域名白名单（≤100 站点）
-      filter['match'] = { site: req.includeDomains };
+      body['search_filter'] = { match: { site: req.includeDomains } };
     }
-    if (Object.keys(filter).length) body['search_filter'] = filter;
 
     const res = await rawRequest(ENDPOINT, {
       method: 'POST',

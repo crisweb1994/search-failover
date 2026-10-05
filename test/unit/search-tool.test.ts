@@ -22,7 +22,7 @@ describe('search 工具：as_requested 缓存写入规则', () => {
     };
     const cache = new ResultCache(config.cache);
     const providers: ProviderEntry[] = [{ cfg: config.providers[0]!, adapter: adapter as never }];
-    const deps = { config, allProviders: config.providers, providers, state: new GatewayState(), cache };
+    const deps = { config, providers, state: new GatewayState(), cache };
     return { handler: makeSearchHandler(deps), cache, adapter };
   }
 
@@ -68,7 +68,7 @@ describe('工具错误语义、缓存解释与 status', () => {
       note: () => 'duckduckgo: include_domains 不支持，已忽略',
       async search() { if (outcome instanceof Error) throw outcome; return outcome; },
     } }];
-    const deps = { config, allProviders: config.providers, state, cache, providers };
+    const deps = { config, state, cache, providers };
     return { deps, handler: makeSearchHandler(deps) };
   }
   const args = { query: 'q', max_results: 8, use_cache: true };

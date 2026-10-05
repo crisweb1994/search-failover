@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     .sort((a, b) => a.priority - b.priority)
     .map(cfg => ({ cfg, adapter: REGISTRY[cfg.name]!.adapter }));
 
-  const deps = { config, allProviders: config.providers, providers, state, cache };
+  const deps = { config, providers, state, cache };
 
   const server = new McpServer({ name: 'search-failover', version: pkg.version });
   server.registerTool('search', { description: SEARCH_DESCRIPTION, inputSchema: searchInput }, makeSearchHandler(deps));

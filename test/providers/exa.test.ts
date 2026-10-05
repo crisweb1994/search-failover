@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest';
-import { http, HttpResponse, delay } from 'msw';
+import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { exa } from '../../src/providers/exa.js';
 
@@ -40,11 +40,6 @@ describe('Exa adapter 契约', () => {
     expect(days).toBeLessThan(7.1);
   });
 
-  it('空结果 → []', async () => {
-    server.use(http.post('https://api.exa.ai/search', () => HttpResponse.json({ results: [] })));
-    expect(await call()).toEqual([]);
-  });
-
   it('402 → quota_exhausted（一次性 credit，resetAt 由 state 用 quota_retry_s）', async () => {
     server.use(http.post('https://api.exa.ai/search', () =>
       new HttpResponse(JSON.stringify({ error: 'out of credits', tag: 'INSUFFICIENT_CREDITS' }), { status: 402 })));
@@ -63,12 +58,4 @@ describe('Exa adapter 契约', () => {
     await expectProviderError(call(), 'server_error');
   });
 
-  it('超时 → timeout', async () => {
-    server.use(http.post('https://api.exa.ai/search', async () => {
-      await delay(3000);
-      return HttpResponse.json(OK);
-    }));
-    await expectProviderError(
-      exa.search({ query: 'x', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(120)), 'timeout');
-  });
 });

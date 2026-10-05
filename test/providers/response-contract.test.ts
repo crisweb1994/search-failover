@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { http, HttpResponse } from 'msw';
-import { useMsw } from '../helpers.js';
+import { http, HttpResponse, delay } from 'msw';
+import { useMsw, expectProviderError } from '../helpers.js';
 import { REGISTRY } from '../../src/providers/registry.js';
 import { parseRetryAfterMs, parseRateLimitResetBuckets } from '../../src/providers/types.js';
 
@@ -42,4 +42,11 @@ describe('成功响应不能静默退化为空结果', () => {
     expect(parseRetryAfterMs(new Headers({ 'retry-after': '2' }))).toBe(2000);
     expect(parseRetryAfterMs(new Headers({ 'retry-after': 'Wed, 01 Jan 2020 00:00:00 GMT' }))).toBe(0);
   });
+});
+
+// 同一契约逐源验证 signal 传递；真实 HTTP body 超时另由 cancellation.test.ts 覆盖。
+it.each(['bocha', 'tavily', 'brave', 'exa', 'duckduckgo'])('%s: 超时归类为 timeout', async name => {
+  server.use(http.all('*', async () => { await delay(3000); return new HttpResponse(); }));
+  await expectProviderError(REGISTRY[name]!.adapter.search(
+    { query: 'x', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(120)), 'timeout');
 });

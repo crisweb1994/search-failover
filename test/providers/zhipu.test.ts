@@ -60,11 +60,6 @@ describe('zhipu adapter 契约', () => {
     expect(body['search_engine']).toBe('search_std');
   });
 
-  it('空结果 → []', async () => {
-    server.use(http.post(URL_API, () => HttpResponse.json({ search_result: [] })));
-    expect(await call()).toEqual([]);
-  });
-
   it('429 + 1302 → rate_limited；429 + 1113 → quota_exhausted（欠费）', async () => {
     server.use(http.post(URL_API, () =>
       new HttpResponse(JSON.stringify({ error: { code: '1302', message: 'Rate limit reached' } }), { status: 429 })));

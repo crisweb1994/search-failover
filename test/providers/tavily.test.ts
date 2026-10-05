@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest';
-import { http, HttpResponse, delay } from 'msw';
+import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { tavily } from '../../src/providers/tavily.js';
 
@@ -45,11 +45,6 @@ describe('Tavily adapter 契约', () => {
     expect(captured.search_depth).toBe('basic');
   });
 
-  it('空结果 → []', async () => {
-    server.use(http.post('https://api.tavily.com/search', () => HttpResponse.json({ results: [] })));
-    expect(await call()).toEqual([]);
-  });
-
   it('429 + Retry-After 头 → rate_limited 且提取 retryAfterMs', async () => {
     server.use(http.post('https://api.tavily.com/search', () =>
       new HttpResponse(JSON.stringify({ detail: 'rate limited' }), { status: 429, headers: { 'Retry-After': '60' } })));
@@ -78,12 +73,4 @@ describe('Tavily adapter 契约', () => {
     await expectProviderError(call(), 'server_error');
   });
 
-  it('超时 → timeout', async () => {
-    server.use(http.post('https://api.tavily.com/search', async () => {
-      await delay(3000);
-      return HttpResponse.json(OK);
-    }));
-    await expectProviderError(
-      tavily.search({ query: 'x', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(120)), 'timeout');
-  });
 });

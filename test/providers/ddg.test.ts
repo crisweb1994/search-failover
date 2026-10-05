@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { http, HttpResponse, delay } from 'msw';
+import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { duckduckgo, parseHtml } from '../../src/providers/ddg.js';
 
@@ -76,15 +76,6 @@ describe('DDG adapter 契约（限流=202 异常页，封禁=403/challenge）', 
   it('500 → server_error', async () => {
     server.use(http.post('https://html.duckduckgo.com/html/', () => new HttpResponse(null, { status: 500 })));
     await expectProviderError(call(), 'server_error');
-  });
-
-  it('超时 → timeout', async () => {
-    server.use(http.post('https://html.duckduckgo.com/html/', async () => {
-      await delay(3000);
-      return new HttpResponse(PAGE, { headers: { 'Content-Type': 'text/html' } });
-    }));
-    await expectProviderError(
-      duckduckgo.search({ query: 'x', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(120)), 'timeout');
   });
 
   it('parseHtml：去重与非 http 链接过滤', () => {

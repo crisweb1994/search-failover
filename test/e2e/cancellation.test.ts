@@ -48,7 +48,7 @@ describe('SDK cancellation → handler → pace / fetch', () => {
       { cfg: config.providers[1]!, adapter: { name: 'p2', maxCount: 20, search: second } },
     ];
     if (stage === 'pace') await state.pace('p1', config.providers[0]!, Date.now() + 1000);
-    const handler = makeSearchHandler({ config, allProviders: config.providers, providers, state, cache });
+    const handler = makeSearchHandler({ config, providers, state, cache });
     let finish!: () => void;
     const finished = new Promise<void>(resolve => { finish = resolve; });
     const server = new McpServer({ name: 'cancel-test', version: '1' });

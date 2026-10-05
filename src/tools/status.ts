@@ -12,7 +12,7 @@ function quotaProfile(p: { quota: { type: string; limit?: number; reset_day?: nu
 
 export function makeStatusHandler(deps: ToolDeps) {
   return async () => {
-    const providers = deps.allProviders.map((cfg: ProviderCfg) => {
+    const providers = deps.config.providers.map((cfg: ProviderCfg) => {
       const configured = isConfigured(cfg.name);
       const blocked = deps.state.checkBlocked(cfg.name);
       let state: string;
