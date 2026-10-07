@@ -190,8 +190,10 @@ describe('请求预算周期与并发等待', () => {
       expect(await s.pace('test', cfg, Date.now() + 2000)).toBe(true);
       starts.push(Date.now());
     }));
-    expect(starts[1]! - starts[0]!).toBeGreaterThanOrEqual(100);
-    expect(starts[2]! - starts[1]!).toBeGreaterThanOrEqual(100);
+    // sleep 按单调时钟计时、断言用 Date.now() 墙上时钟读数，允许毫秒级偏斜；
+    // 原竞态（并发同时放行）的间隔≈0，留 5ms 容差仍能稳定拦截
+    expect(starts[1]! - starts[0]!).toBeGreaterThanOrEqual(95);
+    expect(starts[2]! - starts[1]!).toBeGreaterThanOrEqual(95);
   });
   it('取消等待不预约未来时隙；期限不足不放行', async () => {
     const s = new GatewayState();
