@@ -1,16 +1,25 @@
+import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type Freshness, type RawResult } from '../types.js';
 import {
-  classifyDefault, rawRequest, safeJson, snippetFrom, truncateContent,
+  classifyDefault, rawRequest, parseSuccess, snippetFrom, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
+
+const itemSchema = z.object({
+  title: z.string().min(1),
+  url: z.string().min(1),
+  text: z.string().nullish().transform(v => v ?? undefined),
+  publishedDate: z.string().nullish().transform(v => v ?? undefined),
+  score: z.number().nullish().transform(v => v ?? undefined),
+});
 
 const ENDPOINT = 'https://api.exa.ai/search';
 
 /** freshness → 发布时间起点（往前推 N 天的 ISO 8601） */
 const FRESHNESS_DAYS: Record<Freshness, number> = { day: 1, week: 7, month: 30, year: 365 };
 
-/** Exa（一次性 credit，省着用）：402=credit 耗尽，无月度重置点 */
+/** Exa：402=credit 耗尽；本地窗口不代表账户余额或真实账期 */
 export const exa: ProviderAdapter = {
   name: 'exa',
   maxCount: 100,
@@ -36,21 +45,19 @@ export const exa: ProviderAdapter = {
     }, 'exa', signal);
 
     if (res.status !== 200) throw classify(res);
-    const json = safeJson(res.bodyText);
-    const items: any[] = json?.results ?? [];
-    return items
-      .filter(it => it?.title && it?.url)
-      .map((it): RawResult => {
-        const content = truncateContent(it.text);
-        return {
-          title: String(it.title),
-          url: String(it.url),
-          snippet: snippetFrom(content),
-          content,
-          score: typeof it.score === 'number' ? it.score : undefined,
-          publishedDate: it.publishedDate ?? undefined,
-        };
-      });
+    const json = parseSuccess(res.bodyText, z.object({ results: z.array(itemSchema) }), 'exa');
+    const items = json.results;
+    return items.map((it): RawResult => {
+      const content = truncateContent(it.text);
+      return {
+        title: it.title,
+        url: it.url,
+        snippet: snippetFrom(content),
+        content,
+        score: typeof it.score === 'number' ? it.score : undefined,
+        publishedDate: it.publishedDate ?? undefined,
+      };
+    });
   },
 };
 

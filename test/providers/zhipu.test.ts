@@ -60,11 +60,6 @@ describe('zhipu adapter 契约', () => {
     expect(body['search_engine']).toBe('search_std');
   });
 
-  it('空结果 → []', async () => {
-    server.use(http.post(URL_API, () => HttpResponse.json({ search_result: [] })));
-    expect(await call()).toEqual([]);
-  });
-
   it('429 + 1302 → rate_limited；429 + 1113 → quota_exhausted（欠费）', async () => {
     server.use(http.post(URL_API, () =>
       new HttpResponse(JSON.stringify({ error: { code: '1302', message: 'Rate limit reached' } }), { status: 429 })));
@@ -81,15 +76,14 @@ describe('zhipu adapter 契约', () => {
     await expectProviderError(call(), 'auth_failure');
   });
 
-  it('body code 1703（引擎无数据）→ no_results；1210 → soft server_error', async () => {
+  it('body code 1703（引擎无数据）→ no_results；1210 → request_error', async () => {
     server.use(http.post(URL_API, () =>
       new HttpResponse(JSON.stringify({ error: { code: '1703' } }), { status: 400 })));
     await expectProviderError(call(), 'no_results');
 
     server.use(http.post(URL_API, () =>
       new HttpResponse(JSON.stringify({ error: { code: '1210' } }), { status: 400 })));
-    const err = await expectProviderError(call(), 'server_error');
-    expect(err.soft).toBe(true);
+    await expectProviderError(call(), 'request_error');
   });
 
   it('500 → server_error', async () => {

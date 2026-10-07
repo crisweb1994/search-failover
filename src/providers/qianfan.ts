@@ -1,15 +1,22 @@
+import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
 import {
-  classifyDefault, rawRequest, safeJson, snippetFrom, truncateContent,
+  classifyDefault, rawRequest, safeJson, parseSuccess, snippetFrom, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
 
+const itemSchema = z.object({
+  title: z.string().min(1),
+  url: z.string().min(1),
+  content: z.string().nullish().transform(v => v ?? undefined),
+  snippet: z.string().nullish().transform(v => v ?? undefined),
+  date: z.string().nullish().transform(v => v ?? undefined),
+  rerank_score: z.number().nullish().transform(v => v ?? undefined),
+});
+
 const ENDPOINT = 'https://qianfan.baidubce.com/v2/ai_search/web_search';
 const QUERY_MAX_UNITS = 72; // 官方口径：query ≤72 单位，汉字计 2
-
-/** week/month/year 有 search_recency_filter 枚举；day 用 page_time 精确区间表达 */
-const RECENCY: Record<string, string> = { week: 'week', month: 'month', year: 'year' };
 
 const CJK = /[\u2E80-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF\u3000-\u303F]/;
 
@@ -39,31 +46,24 @@ export const qianfan: ProviderAdapter = {
   name: 'qianfan',
   maxCount: 50,
   note(req: SearchRequest): string | undefined {
-    return countUnits(req.query) > QUERY_MAX_UNITS
-      ? `qianfan: query 超 ${QUERY_MAX_UNITS} 单位（汉字计 2）已截断`
-      : undefined;
+    const notes: string[] = [];
+    if (countUnits(req.query) > QUERY_MAX_UNITS) notes.push(`qianfan: query 超 ${QUERY_MAX_UNITS} 单位（汉字计 2）已截断`);
+    if (req.freshness === 'day') notes.push('qianfan: day 时间过滤不支持，已忽略');
+    return notes.length ? notes.join('；') : undefined;
   },
   async search(req, fetchCount, signal) {
     const body: Record<string, unknown> = {
       messages: [{ role: 'user', content: truncateByUnits(req.query, QUERY_MAX_UNITS) }],
       search_source: 'baidu_search_v2',
-      resource_type_filter: { web: { top_k: Math.min(fetchCount, 50) } },
+      resource_type_filter: [{ type: 'web', top_k: Math.min(fetchCount, 50) }],
     };
 
-    const filter: Record<string, unknown> = {};
-    if (req.freshness) {
-      if (req.freshness === 'day') {
-        // day 无枚举：用 page_time 精确区间（probe 校准项，语法被推翻则整体降级忽略）
-        filter['range'] = { page_time: { gte: 'now-1d' } };
-      } else {
-        body['search_recency_filter'] = RECENCY[req.freshness];
-      }
-    }
+    // day 不发送未经验证的日期范围，明确提示降级。
+    if (req.freshness && req.freshness !== 'day') body['search_recency_filter'] = req.freshness;
     if (req.includeDomains?.length) {
       // 原生多域名白名单（≤100 站点）
-      filter['match'] = { site: req.includeDomains };
+      body['search_filter'] = { match: { site: req.includeDomains } };
     }
-    if (Object.keys(filter).length) body['search_filter'] = filter;
 
     const res = await rawRequest(ENDPOINT, {
       method: 'POST',
@@ -75,22 +75,23 @@ export const qianfan: ProviderAdapter = {
     }, 'qianfan', signal);
 
     if (res.status !== 200) throw classify(res);
-    const json = safeJson(res.bodyText);
-    // 响应容器字段文档未明示（probe 校准项）：按候选路径依次尝试
-    const items: any[] = json?.search_result ?? json?.web_pages?.value ?? json?.webpages ?? [];
-    return items
-      .filter(it => it?.title && it?.url)
-      .map((it): RawResult => {
-        const content = truncateContent(it.content);
-        return {
-          title: String(it.title),
-          url: String(it.url),
-          snippet: snippetFrom(content, it.snippet ? String(it.snippet) : undefined),
-          content,
-          score: typeof it.rerank_score === 'number' ? it.rerank_score : undefined,
-          publishedDate: it.date ?? undefined,
-        };
-      });
+    const json = parseSuccess(res.bodyText, z.object({ references: z.array(z.object({ type: z.string() }).passthrough()) }), 'qianfan');
+    const items = json.references.filter(it => it.type === 'web').map(it => {
+      const parsed = itemSchema.safeParse(it);
+      if (!parsed.success) throw new ProviderError('qianfan', 'server_error', 'invalid_response');
+      return parsed.data;
+    });
+    return items.map((it): RawResult => {
+      const content = truncateContent(it.content);
+      return {
+        title: it.title,
+        url: it.url,
+        snippet: snippetFrom(content, it.snippet || undefined),
+        content,
+        score: typeof it.rerank_score === 'number' ? it.rerank_score : undefined,
+        publishedDate: it.date ?? undefined,
+      };
+    });
   },
 };
 
@@ -101,6 +102,6 @@ function classify(res: HttpResponseInfo): ProviderError {
 
   if (res.status === 401) return new ProviderError('qianfan', 'auth_failure', `http_401 ${detail}`.trim());
   if (res.status === 429) return new ProviderError('qianfan', 'rate_limited', `http_429 ${detail}`.trim());
-  if (res.status === 400) return new ProviderError('qianfan', 'server_error', `http_400 ${detail}`.trim(), { soft: true });
+  if (res.status === 400) return new ProviderError('qianfan', 'request_error', `http_400 ${detail}`.trim());
   return classifyDefault(res, 'qianfan');
 }

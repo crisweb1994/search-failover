@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { ProviderError } from './types.js';
 import type { ProviderCfg } from './config.js';
 
@@ -19,11 +20,9 @@ interface PHealth {
   lastError?: string;
 }
 
-export const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms));
-
 /** 距上次请求不足 interval 时需要等待的毫秒数（0 = 无需等待） */
 export function paceWaitMs(lastMs: number | undefined, intervalMs: number, now: number): number {
-  if (!lastMs) return 0;
+  if (lastMs === undefined) return 0;
   const elapsed = now - lastMs;
   return elapsed >= intervalMs ? 0 : intervalMs - elapsed;
 }
@@ -93,6 +92,7 @@ export class GatewayState {
   }
 
   block(name: string, err: ProviderError, cfg: ProviderCfg, defaults: BlockDefaults, now = Date.now()): void {
+    if (err.type === 'request_error' || err.type === 'no_results') return;
     const capMs = (cfg.cooldown_max_s ?? defaults.cooldown_max_s) * 1000;
     const h = this.h(name);
     h.reason = err.type;
@@ -137,19 +137,30 @@ export class GatewayState {
     return now + cfg.quota.quota_retry_s * 1000;
   }
 
-  tick(name: string, cfg: ProviderCfg, now = Date.now()): void {
-    const period = periodKey(now, cfg.quota.reset_day ?? 1);
-    const c = this.counters.get(name);
-    if (!c || c.period !== period) this.counters.set(name, { period, used: 1 });
-    else c.used += 1;
+  private counter(name: string, cfg: ProviderCfg, now: number) {
+    const period = cfg.quota.type === 'monthly' ? periodKey(now, cfg.quota.reset_day ?? 1) : 'lifetime';
+    let c = this.counters.get(name);
+    if (!c || c.period !== period) {
+      c = { period, used: 0 };
+      this.counters.set(name, c);
+    }
+    return c;
   }
 
-  used(name: string): number {
-    return this.counters.get(name)?.used ?? 0;
+  used(name: string, cfg: ProviderCfg, now = Date.now()): number {
+    return this.counter(name, cfg, now).used;
+  }
+
+  tryStart(name: string, cfg: ProviderCfg, now = Date.now()): boolean {
+    const c = this.counter(name, cfg, now);
+    if (cfg.quota.type !== 'unbounded' && cfg.quota.limit !== undefined && c.used >= cfg.quota.limit) return false;
+    c.used++;
+    return true;
   }
 
   quotaWarning(name: string, cfg: ProviderCfg): boolean {
-    return cfg.quota.type === 'monthly' && !!cfg.quota.limit && this.used(name) >= cfg.quota.limit * 0.9;
+    return cfg.quota.type !== 'unbounded' && cfg.quota.limit !== undefined
+      && this.used(name, cfg) >= cfg.quota.limit * 0.9;
   }
 
   failStreak(name: string): number {
@@ -163,18 +174,20 @@ export class GatewayState {
   /**
    * 限速等待：间隔不足则补齐（等待计入预算）。返回 false 表示预算内补不完，该跳跳过。
    */
-  async pace(name: string, cfg: ProviderCfg, budgetLeftMs: number, now = Date.now()): Promise<boolean> {
+  async pace(name: string, cfg: ProviderCfg, deadline: number, signal?: AbortSignal): Promise<boolean> {
     const interval = paceIntervalMs(cfg);
-    if (interval <= 0) {
-      this.lastPaceMs.set(name, now);
-      return true;
+    // ponytail: 共享时间戳保证间隔，不保证 FIFO；确有公平性需求时再引入队列。
+    for (;;) {
+      signal?.throwIfAborted();
+      const now = Date.now();
+      if (now >= deadline) return false;
+      const wait = paceWaitMs(this.lastPaceMs.get(name), interval, now);
+      if (wait <= 0) {
+        this.lastPaceMs.set(name, now);
+        return true;
+      }
+      if (now + wait >= deadline) return false;
+      await sleep(wait, undefined, { signal });
     }
-    const wait = paceWaitMs(this.lastPaceMs.get(name), interval, now);
-    if (wait > 0) {
-      if (wait >= budgetLeftMs) return false;
-      await sleep(wait);
-    }
-    this.lastPaceMs.set(name, Date.now());
-    return true;
   }
 }

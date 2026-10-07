@@ -20,6 +20,7 @@
  * 退出码：0 全过；1 断言失败（协议/状态）；2 协议全过但真实搜索为空（上游问题，看输出的链）。
  */
 
+import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { readFileSync } from 'node:fs';
@@ -30,29 +31,18 @@ import { dirname, resolve } from 'node:path';
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8'));
 
-const argv = process.argv.slice(2);
-const parseFlag = (name) => {
-  const i = argv.indexOf(name);
-  if (i === -1) return undefined;
-  return argv.splice(i, 2)[1];
-};
-
-const configPath = parseFlag('--config');
-let extraEnv = {};
-for (let i = argv.indexOf('--env'); i !== -1; i = argv.indexOf('--env')) {
-  const kv = argv.splice(i, 2)[1];
+const { values, positionals } = parseArgs({
+  options: { config: { type: 'string' }, env: { type: 'string', multiple: true }, command: { type: 'string' } },
+  allowPositionals: true,
+});
+const configPath = values.config;
+const extraEnv = Object.fromEntries((values.env ?? []).map(kv => {
   const eq = kv.indexOf('=');
-  extraEnv[kv.slice(0, eq)] = kv.slice(eq + 1);
-}
-let command = ['npx', '-y', `search-failover@${pkg.version}`];
-let customCommand = false;
-const cmdIdx = argv.indexOf('--command');
-if (cmdIdx !== -1) {
-  argv.splice(cmdIdx, 1);
-  const sep = argv.indexOf('--');
-  command = sep === -1 ? argv.splice(0) : [...argv.splice(0, sep), ...argv.splice(argv.indexOf('--') + 1)];
-  customCommand = true;
-}
+  if (eq < 1) throw new Error('--env 必须是 KEY=VALUE');
+  return [kv.slice(0, eq), kv.slice(eq + 1)];
+}));
+const customCommand = values.command !== undefined;
+const command = customCommand ? [values.command, ...positionals] : ['npx', '-y', `search-failover@${pkg.version}`];
 
 const KEY_NAMES = ['BOCHA_API_KEY', 'TAVILY_API_KEY', 'BRAVE_API_KEY', 'EXA_API_KEY', 'ZHIPU_API_KEY', 'QIANFAN_API_KEY', 'SERPER_API_KEY'];
 // 零 key / 零配置基线：清空全部 provider key 与宿主残留的 SEARCH_FAILOVER_CONFIG，再叠加 --env / --config
@@ -151,7 +141,7 @@ const run = async () => {
     console.error(`⚠ 全链无结果——协议全过，但真实搜索为空（退出码 2）。链：${chain}`);
     return 2;
   }
-  if (!result.results.every((r) => r.title && r.url && r.snippet !== undefined)) fail('results 条目缺少必有字段 title/url/snippet');
+  if (!result.results.every((r) => r.title && r.url)) fail('results 条目缺少必有字段 title/url');
   if (stdoutDirty) fail('stdout 混入非 JSON-RPC 行');
   console.log('✓ 全握手冒烟通过：initialize → initialized → tools/list → status → 真实搜索');
   return 0;

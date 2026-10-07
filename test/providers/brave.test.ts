@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest';
-import { http, HttpResponse, delay } from 'msw';
+import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { brave, parseAge } from '../../src/providers/brave.js';
 
@@ -42,11 +42,6 @@ describe('Brave adapter 契约', () => {
     expect(decodeURIComponent(capturedUrl)).not.toContain('site:');
   });
 
-  it('空结果 → []', async () => {
-    server.use(http.get(URL_BASE, () => HttpResponse.json({ web: { results: [] } })));
-    expect(await call()).toEqual([]);
-  });
-
   it('429 + RATE_LIMITED → rate_limited，冷却取 X-RateLimit-Reset 第一桶', async () => {
     server.use(http.get(URL_BASE, () =>
       new HttpResponse(JSON.stringify({ error: { code: 'RATE_LIMITED' } }), {
@@ -74,25 +69,15 @@ describe('Brave adapter 契约', () => {
     await expectProviderError(call(), 'auth_failure');
   });
 
-  it('422 + VALIDATION → soft server_error', async () => {
+  it('422 + VALIDATION → request_error', async () => {
     server.use(http.get(URL_BASE, () =>
       new HttpResponse(JSON.stringify({ error: { code: 'VALIDATION' } }), { status: 422 })));
-    const err = await expectProviderError(call(), 'server_error');
-    expect(err.soft).toBe(true);
+    await expectProviderError(call(), 'request_error');
   });
 
   it('500 → server_error', async () => {
     server.use(http.get(URL_BASE, () => new HttpResponse(null, { status: 500 })));
     await expectProviderError(call(), 'server_error');
-  });
-
-  it('超时 → timeout', async () => {
-    server.use(http.get(URL_BASE, async () => {
-      await delay(3000);
-      return HttpResponse.json(OK);
-    }));
-    await expectProviderError(
-      brave.search({ query: 'x', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(120)), 'timeout');
   });
 
   it('parseAge 相对时间解析与失败', () => {

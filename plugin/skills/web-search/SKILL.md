@@ -13,12 +13,12 @@ Reach for the `search` tool whenever the task depends on information you cannot 
 
 - `query` (required): keep it a focused search phrase, not a full sentence. The gateway truncates at 400 characters.
 - `max_results`: default 8, max 20.
-- `freshness`: `day` / `week` / `month` / `year` for time-sensitive questions. This filters server-side — prefer it over trusting `publishedDate`, which is best-effort.
+- `freshness`: `day` / `week` / `month` / `year` for time-sensitive questions. Providers apply their own time semantics; Qianfan ignores `day` and reports it in `meta.note`. `publishedDate` is best-effort.
 - `include_domains`: restrict results to specific sites (e.g. docs sites). Support varies by provider; some ignore it.
 - `provider`: force a single provider — debugging only, defeats failover.
 - `use_cache`: `false` to bypass the 1-hour cache (e.g. breaking news).
 
-Every result has `title` / `url` / `snippet`. `content`, `publishedDate` and `score` are optional and often missing — fetch the `url` when the snippet is not enough.
+Every result has `title` / `url`. `snippet`, `content`, `publishedDate` and `score` are optional and often missing — fetch the `url` when the snippet is not enough.
 
 ## Decide from `meta.fallback_chain`, not from result count alone
 
@@ -26,13 +26,16 @@ Empty `results` has several very different causes. Check the last entries of `fa
 
 | Outcome in chain | Meaning | What you should do |
 |---|---|---|
-| any step `ok` / results returned | `provider_used` responded | Proceed normally |
-| chain ends with `no_results`, no errors | Genuinely nothing found for this query | Rewrite the query (broader terms, other language, fewer filters) and retry **once** |
+| results returned | `provider_used` responded | Proceed normally |
+| nonempty chain contains only `no_results` | Attempted providers returned valid empty results | Rewrite the query (broader terms, other language, fewer filters) and retry **once** |
 | `auth_failure` | A provider rejected its credentials | Tell the user that provider's API key is wrong/missing; other providers carry on automatically |
 | `rate_limited` / `quota_exhausted` | Provider throttled or out of quota | Failover already ran; if every provider is limited, report the quota situation instead of hammering retries |
 | `skipped:budget_exhausted` | The 30s total budget ran out mid-chain | This search did **not** complete — do not conclude "no results"; optionally retry once later |
-| `skipped:quota_local` | Local quota counter says this provider is spent | Expected behavior, not an error |
+| `skipped:quota_local` | Local quota counter says this provider is spent | Process-local request budget exhausted; an empty incomplete search sets `isError=true` |
+| `request_error` | Provider rejected the request parameters | Check query/filters; the provider remains available for other requests |
 | `internal_error` (provider `gateway`) | The gateway itself hit a bug | Report the tool failure to the user; do not blind-retry |
+
+The 30s budget may end before all providers are tried. Empty results with any failure/skip or no runnable provider set `isError=true`; a nonempty chain consisting only of `no_results` does not.
 
 Never treat `results: []` as "no information exists" without checking the chain — the distinction between "searched and found nothing" and "search did not complete" matters to the user.
 
@@ -42,6 +45,8 @@ No-argument dashboard: per-provider blocked state and remaining cooldown, quota 
 
 ## Configuration facts worth knowing
 
-- Works with **zero API keys**: DuckDuckGo is the always-available fallback (needs network and a local Node ≥ 20.10 via npx).
+- Works with **zero API keys**: DuckDuckGo requires no key but is subject to network and anti-bot restrictions (needs network and a local Node ≥ 20.10 via npx).
 - API keys arrive through host environment variables: `BOCHA_API_KEY`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `EXA_API_KEY`, `ZHIPU_API_KEY`, `QIANFAN_API_KEY`, `SERPER_API_KEY` (7 keys; DuckDuckGo needs none).
 - A key alone does **not** activate Zhipu / Qianfan / Serper: they are opt-in and must be enabled in `search-failover.json` (refer the user to the search-failover README if they ask why a keyed provider shows as disabled in `status`).
+
+Counters, cooldowns and cache are per process and reset on restart. `used_requests` counts approved upstream attempts, including failures and cancellation after admission; `used_this_month` is a deprecated alias, not an account balance.

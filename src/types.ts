@@ -10,13 +10,14 @@ export interface SearchRequest {
   useCache: boolean;
 }
 
-/** 六类标准错误（timeout/network 动作相同，保留两个标签只为链上信息更准） */
+/** 标准错误分类（timeout/network 动作相同，保留两个标签只为链上信息更准） */
 export type ErrorType =
   | 'rate_limited'
   | 'quota_exhausted'
   | 'auth_failure'
   | 'timeout'
   | 'network'
+  | 'request_error'
   | 'server_error'
   | 'no_results';
 

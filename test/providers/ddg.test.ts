@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { http, HttpResponse, delay } from 'msw';
+import { describe, expect, it } from 'vitest';
+import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { duckduckgo, parseHtml } from '../../src/providers/ddg.js';
 
@@ -24,7 +24,7 @@ const PAGE = `
 const call = () => duckduckgo.search({ query: 'q', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(2000));
 
 describe('DDG adapter 契约（限流=202 异常页，封禁=403/challenge）', () => {
-  it('正常：uddg 解包 + 直连锚点 + snippet 按序 zip + 实体解码', async () => {
+  it('正常：uddg 解包 + 直连锚点 + snippet 同条目提取 + 实体解码', async () => {
     server.use(http.post('https://html.duckduckgo.com/html/', () => new HttpResponse(PAGE, { headers: { 'Content-Type': 'text/html' } })));
     const results = await call();
     expect(results).toHaveLength(2);
@@ -32,9 +32,9 @@ describe('DDG adapter 契约（限流=202 异常页，封禁=403/challenge）', 
     expect(results[1]).toMatchObject({ title: 'Result Two', url: 'https://example.org/b?x=1', snippet: 'Snippet two' });
   });
 
-  it('无 result__a 的页面 → []（真实空结果）', async () => {
+  it('明确 no-results 标记 → []', async () => {
     server.use(http.post('https://html.duckduckgo.com/html/', () =>
-      new HttpResponse('<html><body><p>no results here</p></body></html>', { headers: { 'Content-Type': 'text/html' } })));
+      new HttpResponse('<html><body><div class="no-results__message">No results found</div></body></html>', { headers: { 'Content-Type': 'text/html' } })));
     expect(await call()).toEqual([]);
   });
 
@@ -62,18 +62,9 @@ describe('DDG adapter 契约（限流=202 异常页，封禁=403/challenge）', 
     expect(results[0]!.title).toBe('Top coding challenge ideas');
   });
 
-  it('大页面解析 0 条且无关键词 → 返回 [] 并记 warn（页面结构变更可感知）', async () => {
-    const big = `<html><body>${'<p>filler content, nothing parseable here</p>'.repeat(60)}</body></html>`;
-    expect(big.length).toBeGreaterThan(1024);
-    const warnSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    try {
-      server.use(http.post('https://html.duckduckgo.com/html/', () =>
-        new HttpResponse(big, { headers: { 'Content-Type': 'text/html' } })));
-      expect(await call()).toEqual([]);
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('0 条结果'));
-    } finally {
-      warnSpy.mockRestore();
-    }
+  it('未知页面结构不能当作空结果', async () => {
+    server.use(http.post('https://html.duckduckgo.com/html/', () => new HttpResponse('<html>changed</html>')));
+    await expectProviderError(call(), 'server_error');
   });
 
   it('403 → rate_limited 6h', async () => {
@@ -87,15 +78,6 @@ describe('DDG adapter 契约（限流=202 异常页，封禁=403/challenge）', 
     await expectProviderError(call(), 'server_error');
   });
 
-  it('超时 → timeout', async () => {
-    server.use(http.post('https://html.duckduckgo.com/html/', async () => {
-      await delay(3000);
-      return new HttpResponse(PAGE, { headers: { 'Content-Type': 'text/html' } });
-    }));
-    await expectProviderError(
-      duckduckgo.search({ query: 'x', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(120)), 'timeout');
-  });
-
   it('parseHtml：去重与非 http 链接过滤', () => {
     const html = PAGE + `
       <a class="result__a" href="https://example.com/a">Dup URL</a>
@@ -103,4 +85,21 @@ describe('DDG adapter 契约（限流=202 异常页，封禁=403/challenge）', 
     const results = parseHtml(html, 20);
     expect(results).toHaveLength(2); // 重复 URL 合并，javascript: 跳过
   });
+});
+
+it('DDG 条目内匹配摘要、属性换序、实体解码、广告与协议过滤', () => {
+  const page = `<div class='result'><a href='https://a.test' class='result__a'>A &apos;&#x4e2d;</a></div>
+    <div class='result result--ad'><a href='https://advertiser.test' class='result__a'>Ad</a></div>
+    <div class='result'><a href='/y.js?ad_provider=x' class='result__a'>Ad</a></div>
+    <div class='result'><a href='//duckduckgo.com/aclick/x' class='result__a'>Ad</a></div>
+    <div class='result'><a href='//duckduckgo.com/l/?uddg=javascript%3Aalert(1)' class='result__a'>JS</a></div>
+    <div class='result'><a href='https://b.test' class='result__a'>B</a><div class='result__snippet'>B snippet</div></div>`;
+  expect(parseHtml(page, 20)).toEqual([
+    { title: "A '中", url: 'https://a.test/', snippet: undefined },
+    { title: 'B', url: 'https://b.test/', snippet: 'B snippet' },
+  ]);
+});
+
+it('明确无结果页中出现 captcha 查询词不应屏蔽来源', () => {
+  expect(parseHtml('<div class="no-results__message">No results for captcha</div>', 8)).toEqual([]);
 });

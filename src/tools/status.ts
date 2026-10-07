@@ -12,7 +12,7 @@ function quotaProfile(p: { quota: { type: string; limit?: number; reset_day?: nu
 
 export function makeStatusHandler(deps: ToolDeps) {
   return async () => {
-    const providers = deps.allProviders.map((cfg: ProviderCfg) => {
+    const providers = deps.config.providers.map((cfg: ProviderCfg) => {
       const configured = isConfigured(cfg.name);
       const blocked = deps.state.checkBlocked(cfg.name);
       let state: string;
@@ -20,13 +20,16 @@ export function makeStatusHandler(deps: ToolDeps) {
       else if (!cfg.enabled) state = 'disabled'; // opt-in 源未开启（D14）
       else if (blocked?.reason === 'auth_failure') state = 'disabled(auth_failure)';
       else if (blocked) state = `blocked(${blocked.reason}, 剩${blocked.remainS}s)`;
+      else if (cfg.quota.type !== 'unbounded' && cfg.quota.limit !== undefined
+        && deps.state.used(cfg.name, cfg) >= cfg.quota.limit) state = 'blocked(quota_local)';
       else state = 'active';
 
       return {
         name: cfg.name,
         state,
         fail_streak: deps.state.failStreak(cfg.name),
-        used_this_month: deps.state.used(cfg.name),
+        used_requests: deps.state.used(cfg.name, cfg),
+        used_this_month: deps.state.used(cfg.name, cfg), // deprecated compatibility alias
         quota_profile: quotaProfile(cfg),
         quota_warning: deps.state.quotaWarning(cfg.name, cfg),
         last_error: deps.state.lastError(cfg.name),

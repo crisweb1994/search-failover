@@ -1,13 +1,6 @@
 import { createHash } from 'node:crypto';
+import type { AppConfig } from './config.js';
 import type { Freshness, SearchResult } from './types.js';
-
-export interface CacheCfg {
-  enabled: boolean;
-  store_size: number;
-  ttl_s: number;
-  ttl_fresh_s: number;
-  max_entries: number;
-}
 
 /** 仅用于缓存 key；上游收到的永远是用户原始查询 */
 export function normalizeQuery(q: string): string {
@@ -30,7 +23,7 @@ export class ResultCache {
   hits = 0;
   misses = 0;
 
-  constructor(private cfg: Pick<CacheCfg, 'ttl_s' | 'ttl_fresh_s' | 'max_entries'>) {}
+  constructor(private cfg: Pick<AppConfig['cache'], 'ttl_s' | 'ttl_fresh_s' | 'max_entries'>) {}
 
   get(key: string, now = Date.now()): SearchResult[] | undefined {
     const entry = this.store.get(key);

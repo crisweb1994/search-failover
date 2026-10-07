@@ -131,7 +131,8 @@ describe('Router：顺序兜底与错误处置（对应验收 2/4/5/6/10/13）',
     const config = mkConfig({ total_budget_ms: 80 });
     const { deps } = mkDeps([a, b, c], config);
     const out = await runSearch(REQ(), deps);
-    expect(out.meta.provider_used).toBe('p1'); // 第一个慢源成功
+    expect(out.meta.provider_used).toBeNull(); // 超过总预算的结果不再接受
+    expect(out.meta.fallback_chain[0]?.outcome).toBe('skipped:budget_exhausted');
     expect(b.calls).toBe(0);
     expect(c.calls).toBe(0);
   });
@@ -157,8 +158,8 @@ describe('Router：顺序兜底与错误处置（对应验收 2/4/5/6/10/13）',
       p.adapter = { ...p.adapter, search: async (req, fc, sig) => { seen.push(fc); return orig(req, fc, sig); } };
     }
     await runSearch(REQ(), deps);
-    expect(seen).toEqual([10, 20]);
-    expect(state.used('p2')).toBe(1);
+    expect(seen).toEqual([8, 8]); // useCache=false 按需取数
+    expect(state.used('p2', deps.providers[1]!.cfg)).toBe(1);
   });
 
   it('同源去重：utm 变体 URL 保留信息更全的一条（验收 8）', async () => {
@@ -197,8 +198,8 @@ describe('配额软闸门 / fetch_policy / tick 口径（D10/D12/D13）', () => 
     const b = new Fake('p2', [[r('https://ok.com')]]);
     const state = new GatewayState();
     const cfg = providerSchema.parse({ name: 'p1', priority: 1, quota: { type: 'monthly', limit: 2, reset_day: 1 } });
-    state.tick('p1', cfg);
-    state.tick('p1', cfg);
+    state.tryStart('p1', cfg);
+    state.tryStart('p1', cfg);
     const providers: ProviderEntry[] = [
       { cfg, adapter: a },
       { cfg: providerSchema.parse({ name: 'p2', priority: 2, quota: { type: 'unbounded' } }), adapter: b },
@@ -215,7 +216,7 @@ describe('配额软闸门 / fetch_policy / tick 口径（D10/D12/D13）', () => 
     const a = new Fake('p1', [[r('https://ok.com')]]);
     const state = new GatewayState();
     const cfg = providerSchema.parse({ name: 'p1', priority: 1, quota: { type: 'one_time' } }); // 无 limit
-    for (let i = 0; i < 10; i++) state.tick('p1', cfg);
+    for (let i = 0; i < 10; i++) state.tryStart('p1', cfg);
     const providers: ProviderEntry[] = [{ cfg, adapter: a }];
 
     const out = await runSearch(REQ(), { providers, state, config: mkConfig() });
@@ -228,8 +229,8 @@ describe('配额软闸门 / fetch_policy / tick 口径（D10/D12/D13）', () => 
     const b = new Fake('p2', [[r('https://ok.com')]]);
     const { deps, state } = mkDeps([a, b]);
     await runSearch(REQ(), deps);
-    expect(state.used('p1')).toBe(1); // 空结果仍 tick
-    expect(state.used('p2')).toBe(1);
+    expect(state.used('p1', deps.providers[0]!.cfg)).toBe(1); // 空结果仍 tick
+    expect(state.used('p2', deps.providers[1]!.cfg)).toBe(1);
   });
 
   it('D12：as_requested → fetchCount = min(maxResults, maxCount)；cache_fill 保持现状', async () => {
@@ -244,7 +245,77 @@ describe('配额软闸门 / fetch_policy / tick 口径（D10/D12/D13）', () => 
     const state = new GatewayState();
     await runSearch(REQ({ maxResults: 5 }), { providers: [mk('as_requested', 100)], state, config: mkConfig() });
     expect(seen[0]).toBe(5); // 按需取数
-    await runSearch(REQ({ maxResults: 5 }), { providers: [mk('cache_fill', 100)], state, config: mkConfig() });
+    await runSearch(REQ({ maxResults: 5, useCache: true }), { providers: [mk('cache_fill', 100)], state, config: mkConfig() });
     expect(seen[1]).toBe(20); // 取足喂缓存（store_size 默认 20）
+  });
+});
+
+describe('准入、取消与健康归因', () => {
+  it('limit=1 三个并发请求只批准一个，错误同样消耗预算', async () => {
+    const a = new Fake('p1', [err('network')]);
+    a.delayMs = 20;
+    const { deps, state } = mkDeps([a]);
+    deps.providers[0]!.cfg.quota = { type: 'one_time', limit: 1, quota_retry_s: 1 };
+    const results = await Promise.all([0, 1, 2].map(() => runSearch(REQ(), deps)));
+    expect(a.calls).toBe(1);
+    expect(state.used('p1', deps.providers[0]!.cfg)).toBe(1);
+    expect(results.flatMap(r => r.meta.fallback_chain).filter(s => s.outcome === 'skipped:quota_local')).toHaveLength(2);
+  });
+  it('等待期间被另一请求屏蔽，醒来后不再调用 adapter', async () => {
+    const a = new Fake('p1', [err('auth_failure')]);
+    a.delayMs = 20;
+    const { deps } = mkDeps([a]);
+    deps.providers[0]!.cfg.min_interval_ms = 100;
+    const [, second] = await Promise.all([runSearch(REQ(), deps), runSearch(REQ(), deps)]);
+    expect(a.calls).toBe(1);
+    expect(second.meta.fallback_chain[0]?.outcome).toBe('skipped:auth_failure');
+  });
+  it('参数错误不屏蔽，下一次正常请求仍可执行；合法空结果清除失败阶梯', async () => {
+    const a = new Fake('p1', [err('request_error'), []]);
+    const { deps, state } = mkDeps([a]);
+    state.block('p1', err('network'), deps.providers[0]!.cfg, DEFAULTS, Date.now() - 31_000);
+    await runSearch(REQ(), deps);
+    expect(state.failStreak('p1')).toBe(1);
+    expect(state.checkBlocked('p1')).toBeNull();
+    await runSearch(REQ(), deps);
+    expect(state.failStreak('p1')).toBe(0);
+    expect(a.calls).toBe(2);
+  });
+  it('adapter 返回后取消仍不接受结果、不调用下一家、不惩罚健康', async () => {
+    const a = new Fake('p1', [[r('https://ok.com')]]);
+    a.delayMs = 30;
+    const b = new Fake('p2', [[]]);
+    const { deps, state } = mkDeps([a, b]);
+    const controller = new AbortController();
+    const pending = runSearch(REQ(), deps, controller.signal);
+    setTimeout(() => controller.abort(), 10);
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(a.calls).toBe(1);
+    expect(b.calls).toBe(0);
+    expect(state.checkBlocked('p1')).toBeNull();
+    expect(state.used('p1', deps.providers[0]!.cfg)).toBe(1);
+  });
+  it('单源超时冷却；总预算超时不归因于 provider', async () => {
+    for (const total_budget_ms of [30, 1000]) {
+      const { deps, state } = mkDeps([new Fake('p1', [])], mkConfig({ timeout_ms: 60, total_budget_ms }));
+      deps.providers[0]!.adapter.search = async (_req, _count, signal) => {
+        await new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+        return [];
+      };
+      const result = await runSearch(REQ(), deps);
+      expect(result.meta.fallback_chain[0]?.outcome).toBe(total_budget_ms === 30 ? 'skipped:budget_exhausted' : 'timeout');
+      expect(state.checkBlocked('p1') === null).toBe(total_budget_ms === 30);
+    }
+  });
+  it('cache_fill 仅在可缓存的普通请求预取；Exa 默认按需', async () => {
+    expect(defaultProviders().find(p => p.name === 'exa')?.fetch_policy).toBe('as_requested');
+    for (const mode of ['normal', 'no_cache', 'disabled_cache', 'forced']) {
+      const { deps } = mkDeps([new Fake('p1', [[]])]);
+      let count = 0;
+      deps.providers[0]!.adapter.search = async (_req, n) => { count = n; return []; };
+      if (mode === 'disabled_cache') deps.config.cache.enabled = false;
+      await runSearch(REQ({ useCache: mode !== 'no_cache', provider: mode === 'forced' ? 'p1' : undefined }), deps);
+      expect(count).toBe(mode === 'normal' ? 20 : 8);
+    }
   });
 });

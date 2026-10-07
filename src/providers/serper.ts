@@ -1,9 +1,17 @@
+import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, rawRequest, safeJson,
+  classifyDefault, FRESHNESS, rawRequest, parseSuccess,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
+
+const itemSchema = z.object({
+  title: z.string().min(1),
+  link: z.string().min(1),
+  snippet: z.string().nullish().transform(v => v ?? undefined),
+  date: z.string().nullish().transform(v => v ?? undefined),
+});
 
 const ENDPOINT = 'https://google.serper.dev/search';
 
@@ -26,7 +34,7 @@ export const serper: ProviderAdapter = {
     if (req.includeDomains?.length === 1) q = `site:${req.includeDomains[0]} ${req.query}`;
     const body: Record<string, unknown> = {
       q,
-      num: Math.min(fetchCount, 100), // num=100 才计 2 credits；本网关封顶 20 恒为 1 credit
+      num: Math.min(fetchCount, 100), // 计费分档待实际核实；本地按请求尝试计数，不等同 credits
     };
     if (req.freshness) body['tbs'] = FRESHNESS.serper[req.freshness];
 
@@ -40,16 +48,14 @@ export const serper: ProviderAdapter = {
     }, 'serper', signal);
 
     if (res.status !== 200) throw classify(res);
-    const json = safeJson(res.bodyText);
-    const items: any[] = json?.organic ?? [];
-    return items
-      .filter(it => it?.title && it?.link)
-      .map((it): RawResult => ({
-        title: String(it.title),
-        url: String(it.link),
-        snippet: it.snippet ? String(it.snippet) : undefined,
-        publishedDate: it.date ?? undefined,
-      }));
+    const json = parseSuccess(res.bodyText, z.object({ organic: z.array(itemSchema) }), 'serper');
+    const items = json.organic;
+    return items.map((it): RawResult => ({
+      title: it.title,
+      url: it.link,
+      snippet: it.snippet || undefined,
+      publishedDate: it.date ?? undefined,
+    }));
   },
 };
 

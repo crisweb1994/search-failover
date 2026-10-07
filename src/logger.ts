@@ -16,7 +16,5 @@ function write(level: Level, msg: string): void {
 
 export const log = {
   error: (msg: string) => write('error', msg),
-  warn: (msg: string) => write('warn', msg),
   info: (msg: string) => write('info', msg),
-  debug: (msg: string) => write('debug', msg),
 };

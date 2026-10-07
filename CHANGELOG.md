@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- 自定义 providers 条目继承注册表默认保护；空名单保留，未知/重复名称与非法数值启动时报错。
+- 本地 limit 改为同步批准的上游尝试数，错误及批准后的取消也计数；monthly 读取时重置，one_time 不跨月归零。新增 used_requests，used_this_month 暂留同值别名；计数不代表供应商费用。
+- 修复并发限速和准入竞争；透传 MCP 取消，总预算耗尽不再惩罚来源健康。
+- 非法成功响应、响应超限不再伪装为空结果；参数错误使用 request_error，不屏蔽来源。未完整完成的空搜索使用 MCP isError。
+- 千帆请求使用 resource_type_filter 数组，读取 references/web，day 过滤明确降级。真实千帆接口仍待凭据验证。
+- 缓存命中保留降级说明；Exa、无缓存和指定来源调用按需取数。Brave 本地参考预算 1000，Exa 改为 monthly、保留本地 800 上限。
+- DDG 使用 htmlparser2 按条目解析摘要并过滤广告，未知结构报错；新增 PR/push CI 和最低 Node 打包产物 smoke。
+
+
 本文件记录项目的所有显著变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 ## [0.3.0] — 2026-10-02
