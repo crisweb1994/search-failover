@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.4.0] — 2026-10-07
 
 - 自定义 providers 条目继承注册表默认保护；空名单保留，未知/重复名称与非法数值启动时报错。
 - 本地 limit 改为同步批准的上游尝试数，错误及批准后的取消也计数；monthly 读取时重置，one_time 不跨月归零。新增 used_requests，used_this_month 暂留同值别名；计数不代表供应商费用。
