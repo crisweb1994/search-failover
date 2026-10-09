@@ -65,7 +65,7 @@ function buildMeta(chain: FallbackStep[], providerUsed: string | null, elapsedMs
 
 /**
  * 顺序兜底主循环（§3）：任何错误不重试，failover 即重试（D6 v1.2）；
- * 返回完整结果集（不截断），由工具层截断到 maxResults 并写缓存。
+ * 统一按需取数，去重后由工具层截断到 maxResults 并写缓存。
  */
 export async function runSearch(req: SearchRequest, deps: RouterDeps, requestSignal?: AbortSignal): Promise<{ results: SearchResult[]; meta: SearchMeta }> {
   const startedAt = Date.now();
@@ -121,10 +121,7 @@ export async function runSearch(req: SearchRequest, deps: RouterDeps, requestSig
       chain.push({ provider: p.cfg.name, outcome: 'skipped:budget_exhausted', elapsedMs: Date.now() - stepStart });
       continue;
     }
-    // D12：cache_fill=取足喂缓存（按请求计费源）；as_requested=按需取数（按结果计费源）
-    const fetchCount = p.cfg.fetch_policy === 'as_requested' || !deps.config.cache.enabled || !req.useCache || !!req.provider
-      ? Math.min(req.maxResults, p.adapter.maxCount)
-      : Math.min(deps.config.cache.store_size, p.adapter.maxCount);
+    const fetchCount = Math.min(req.maxResults, p.adapter.maxCount);
 
     const budgetLimited = remainingMs <= deps.config.defaults.timeout_ms;
     const timeoutSignal = AbortSignal.timeout(timeoutMs);

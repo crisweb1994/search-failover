@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { runSearch, normalizeUrl, type ProviderEntry } from '../src/router.js';
 import { GatewayState } from '../src/state.js';
 import { configSchema, providerSchema, defaultProviders, type AppConfig } from '../src/config.js';
@@ -146,8 +146,8 @@ describe('Router：顺序兜底与错误处置（对应验收 2/4/5/6/10/13）',
     expect(b.calls).toBe(0);
   });
 
-  it('fetchCount = min(store_size, adapter.maxCount)，成功源计数 +1', async () => {
-    const a = new Fake('p1', [[]], 10); // maxCount 10 < store_size 20
+  it('按需取数，成功源计数 +1', async () => {
+    const a = new Fake('p1', [[]], 10); // 该源最多 10 条
     const b = new Fake('p2', [[r('https://ok.com')]], 50);
     const config = mkConfig();
     const { deps, state } = mkDeps([a, b], config);
@@ -192,7 +192,7 @@ describe('normalizeUrl / dedupe 辅助', () => {
   });
 });
 
-describe('配额软闸门 / fetch_policy / tick 口径（D10/D12/D13）', () => {
+describe('配额软闸门与请求计数（D10/D13）', () => {
   it('D10：used ≥ limit → skipped:quota_local 且不发请求、不屏蔽', async () => {
     const a = new Fake('p1', [[r('https://never.com')]]);
     const b = new Fake('p2', [[r('https://ok.com')]]);
@@ -233,29 +233,91 @@ describe('配额软闸门 / fetch_policy / tick 口径（D10/D12/D13）', () => 
     expect(state.used('p2', deps.providers[1]!.cfg)).toBe(1);
   });
 
-  it('D12：as_requested → fetchCount = min(maxResults, maxCount)；cache_fill 保持现状', async () => {
-    const seen: number[] = [];
-    const mk = (fetchPolicy: string, maxCount: number): ProviderEntry => {
-      const fake = new Fake('p', [[r('https://ok.com')]], maxCount);
-      return {
-        cfg: providerSchema.parse({ name: 'p', priority: 1, quota: { type: 'unbounded' }, fetch_policy: fetchPolicy }),
-        adapter: { ...fake, search: async (req, fc, sig) => { seen.push(fc); return fake.search(req, fc, sig); } },
-      };
-    };
-    const state = new GatewayState();
-    await runSearch(REQ({ maxResults: 5 }), { providers: [mk('as_requested', 100)], state, config: mkConfig() });
-    expect(seen[0]).toBe(5); // 按需取数
-    await runSearch(REQ({ maxResults: 5, useCache: true }), { providers: [mk('cache_fill', 100)], state, config: mkConfig() });
-    expect(seen[1]).toBe(20); // 取足喂缓存（store_size 默认 20）
-  });
+
 });
 
 describe('准入、取消与健康归因', () => {
+  it('健康冷却后本地预算仍拦截；本地窗口重置也不会提前解除健康屏蔽', async () => {
+    const clock = vi.spyOn(Date, 'now');
+    const before = new Date(2026, 8, 30, 23, 59, 0).getTime();
+    try {
+      clock.mockReturnValue(before);
+      const a = new Fake('p1', [err('quota_exhausted', { resetAtMs: before + 3600_000 })]);
+      const { deps, state } = mkDeps([a]);
+      const cfg = deps.providers[0]!.cfg;
+      cfg.quota = { type: 'monthly', limit: 1, reset_day: 1 };
+      await runSearch(REQ(), deps);
+
+      // 新窗口已到，但上游尚未允许恢复。
+      clock.mockReturnValue(new Date(2026, 9, 1, 0, 0, 0).getTime());
+      const blocked = await runSearch(REQ(), deps);
+      expect(blocked.meta.fallback_chain[0]?.outcome).toBe('skipped:quota_exhausted');
+      expect(state.used('p1', cfg)).toBe(0);
+      expect(a.calls).toBe(1);
+
+      clock.mockReturnValue(before + 3600_000);
+      await runSearch(REQ(), deps);
+      expect(a.calls).toBe(2);
+      // 新窗口预算已用完，即便健康允许也不能再次调用。
+      const exhausted = await runSearch(REQ(), deps);
+      expect(exhausted.meta.fallback_chain[0]?.outcome).toBe('skipped:quota_local');
+      expect(a.calls).toBe(2);
+    } finally { clock.mockRestore(); }
+  });
+
+  it('月度本地预算和配额错误冷却独立，冷却后再次错误重新等待', async () => {
+    const clock = vi.spyOn(Date, 'now');
+    const now = new Date(2026, 9, 9, 12).getTime();
+    try {
+      clock.mockReturnValue(now);
+      const a = new Fake('p1', [err('quota_exhausted'), err('quota_exhausted'), [r('https://ok.com')]]);
+      const { deps } = mkDeps([a]);
+      deps.providers[0]!.cfg.quota = { type: 'monthly', limit: 10, reset_day: 1 };
+      deps.providers[0]!.cfg.quota_retry_s = 600;
+      await runSearch(REQ(), deps);
+      clock.mockReturnValue(now + 599_000);
+      expect((await runSearch(REQ(), deps)).meta.fallback_chain[0]?.outcome).toBe('skipped:quota_exhausted');
+      expect(a.calls).toBe(1);
+      clock.mockReturnValue(now + 600_000);
+      await runSearch(REQ(), deps);
+      clock.mockReturnValue(now + 1199_000);
+      await runSearch(REQ(), deps);
+      expect(a.calls).toBe(2);
+      clock.mockReturnValue(now + 1200_000);
+      expect((await runSearch(REQ(), deps)).meta.provider_used).toBe('p1');
+      expect(a.calls).toBe(3);
+    } finally { clock.mockRestore(); }
+  });
+
+  it.each([
+    [2026, 8, 30, 1, 'monthly'],
+    [2026, 8, 30, 1, 'one_time'],
+    [2026, 8, 29, 31, 'monthly'],
+    [2026, 1, 27, 31, 'monthly'],
+    [2028, 1, 28, 31, 'monthly'],
+    [2026, 9, 14, 15, 'monthly'],
+  ] as const)('路由满额跨窗口 %i/%i/%i reset_day=%i %s', async (year, month, day, resetDay, type) => {
+    const clock = vi.spyOn(Date, 'now');
+    const before = new Date(year, month, day, 23, 59, 59).getTime();
+    try {
+      clock.mockReturnValue(before);
+      const a = new Fake('p1', [[r('https://ok.com')], [r('https://ok.com')]]);
+      const { deps } = mkDeps([a]);
+      deps.providers[0]!.cfg.quota = { type, limit: 1, reset_day: resetDay };
+      await runSearch(REQ(), deps);
+      expect((await runSearch(REQ(), deps)).meta.fallback_chain[0]?.outcome).toBe('skipped:quota_local');
+      clock.mockReturnValue(before + 1000);
+      const out = await runSearch(REQ(), deps);
+      expect(a.calls).toBe(type === 'monthly' ? 2 : 1);
+      expect(out.meta.provider_used).toBe(type === 'monthly' ? 'p1' : null);
+    } finally { clock.mockRestore(); }
+  });
+
   it('limit=1 三个并发请求只批准一个，错误同样消耗预算', async () => {
     const a = new Fake('p1', [err('network')]);
     a.delayMs = 20;
     const { deps, state } = mkDeps([a]);
-    deps.providers[0]!.cfg.quota = { type: 'one_time', limit: 1, quota_retry_s: 1 };
+    deps.providers[0]!.cfg.quota = { type: 'one_time', limit: 1 };
     const results = await Promise.all([0, 1, 2].map(() => runSearch(REQ(), deps)));
     expect(a.calls).toBe(1);
     expect(state.used('p1', deps.providers[0]!.cfg)).toBe(1);
@@ -307,15 +369,15 @@ describe('准入、取消与健康归因', () => {
       expect(state.checkBlocked('p1') === null).toBe(total_budget_ms === 30);
     }
   });
-  it('cache_fill 仅在可缓存的普通请求预取；Exa 默认按需', async () => {
-    expect(defaultProviders().find(p => p.name === 'exa')?.fetch_policy).toBe('as_requested');
-    for (const mode of ['normal', 'no_cache', 'disabled_cache', 'forced']) {
-      const { deps } = mkDeps([new Fake('p1', [[]])]);
-      let count = 0;
-      deps.providers[0]!.adapter.search = async (_req, n) => { count = n; return []; };
+  it.each(['normal', 'no_cache', 'disabled_cache', 'forced'])('%s 均按需取数并遵守来源上限', async mode => {
+    for (const maxCount of [4, 100]) {
+      const { deps } = mkDeps([new Fake('p1', [[]], maxCount)]);
+      const search = vi.fn(async () => []);
+      deps.providers[0]!.adapter.search = search;
       if (mode === 'disabled_cache') deps.config.cache.enabled = false;
-      await runSearch(REQ({ useCache: mode !== 'no_cache', provider: mode === 'forced' ? 'p1' : undefined }), deps);
-      expect(count).toBe(mode === 'normal' ? 20 : 8);
+      const request = REQ({ useCache: mode !== 'no_cache', provider: mode === 'forced' ? 'p1' : undefined });
+      await runSearch(request, deps);
+      expect(search).toHaveBeenCalledWith(request, maxCount === 4 ? 4 : 8, expect.any(AbortSignal));
     }
   });
 });

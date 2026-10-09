@@ -39,16 +39,6 @@ function monthStart(year: number, month: number, day: number): Date {
   return new Date(year, month, Math.min(day, lastDay), 0, 0, 0, 0);
 }
 
-/** 下一次月度重置点（本地时区该 reset_day 的 00:00） */
-export function nextResetMs(now: number, resetDay: number): number {
-  const d = new Date(now);
-  let target = monthStart(d.getFullYear(), d.getMonth(), resetDay);
-  if (target.getTime() <= now) {
-    target = monthStart(d.getFullYear(), d.getMonth() + 1, resetDay);
-  }
-  return target.getTime();
-}
-
 /** 当前计费窗口起点（用于配额计数的 period key） */
 function windowStart(now: number, resetDay: number): Date {
   const d = new Date(now);
@@ -104,8 +94,10 @@ export class GatewayState {
         break;
       }
       case 'quota_exhausted': {
-        // 不走阶梯：直接到重置点（月度制）或固定探针间隔（余额制）
-        h.blockedUntilMs = err.resetAtMs ?? this.nextReset(cfg, now);
+        // 上游恢复时间与本地计数窗口独立，不走失败阶梯或普通冷却上限。
+        const resetAt = err.resetAtMs;
+        h.blockedUntilMs = resetAt !== undefined && Number.isFinite(resetAt) && resetAt > now
+          ? resetAt : now + cfg.quota_retry_s * 1000;
         break;
       }
       case 'auth_failure': {
@@ -130,11 +122,6 @@ export class GatewayState {
     h.failStreak = 0;
     h.blockedUntilMs = 0;
     h.reason = '';
-  }
-
-  nextReset(cfg: ProviderCfg, now = Date.now()): number {
-    if (cfg.quota.type === 'monthly') return nextResetMs(now, cfg.quota.reset_day ?? 1);
-    return now + cfg.quota.quota_retry_s * 1000;
   }
 
   private counter(name: string, cfg: ProviderCfg, now: number) {

@@ -7,21 +7,28 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { REGISTRY } from '../../src/providers/registry.js';
 
 describe('stdio e2e', () => {
-  it('起服 → initialize → tools/list → status 调用；stdout 无协议错误', async () => {
+  it.each(['default', 'migration', 'quiet'])('%s 起服 → initialize → tools/list → status；迁移提示不污染 stdout', async mode => {
     const dir = mkdtempSync(join(tmpdir(), 'search-failover-stdio-'));
     const config = join(dir, 'config.json');
-    writeFileSync(config, '{}');
+    writeFileSync(config, JSON.stringify(mode === 'default' ? {} : {
+      providers: Object.keys(REGISTRY).map(name => name === 'bocha'
+        ? { name, fetch_policy: 'cache_fill', quota: { quota_retry_s: 600 } }
+        : { name }),
+      cache: { store_size: 2 },
+    }));
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: ['--import', 'tsx', 'src/index.ts'],
       cwd: process.cwd(),
       env: {
-        PATH: process.env.PATH ?? '', LOG: 'error', SEARCH_FAILOVER_CONFIG: config,
+        PATH: process.env.PATH ?? '', LOG: mode === 'migration' ? 'info' : 'error', SEARCH_FAILOVER_CONFIG: config,
         BOCHA_API_KEY: '', TAVILY_API_KEY: '', BRAVE_API_KEY: '', EXA_API_KEY: '',
         ZHIPU_API_KEY: '', QIANFAN_API_KEY: '', SERPER_API_KEY: '',
       },
       stderr: 'pipe',
     });
+    let stderr = '';
+    transport.stderr?.on('data', chunk => { stderr += String(chunk); });
     const client = new Client({ name: 'test', version: '0' });
     const errors: Error[] = [];
     client.onerror = error => errors.push(error);
@@ -43,5 +50,11 @@ describe('stdio e2e', () => {
       rmSync(dir, { recursive: true, force: true });
     }
     expect(errors).toEqual([]);
+    expect(stderr.match(/配置迁移/g)?.length ?? 0).toBe(mode === 'migration' ? 1 : 0);
+    if (mode === 'migration') {
+      expect(stderr).toContain('quota.quota_retry_s');
+      expect(stderr).toContain('fetch_policy');
+      expect(stderr).toContain('cache.store_size');
+    }
   }, 25000);
 });

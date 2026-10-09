@@ -13,7 +13,7 @@ export const searchInput = {
   freshness: z.enum(['day', 'week', 'month', 'year']).describe('时间过滤：day/week/month/year').optional(),
   include_domains: z.array(z.string().trim().min(1).max(253).regex(/^[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?)*$/, '请输入主机名，不接受 URL 或搜索操作符')).describe(domainFilterDescribe()).optional(),
   provider: z.string().trim().min(1).describe(providerParamDescribe()).optional(),
-  use_cache: z.boolean().describe('是否允许命中缓存（同参数 1 小时内秒回且不耗配额）').default(true),
+  use_cache: z.boolean().describe('是否允许读写缓存（相同查询、条数和过滤条件；默认 TTL 1 小时，day 为 15 分钟，可配置）').default(true),
 };
 
 export interface ToolDeps {
@@ -51,7 +51,7 @@ export function makeSearchHandler(deps: ToolDeps) {
         notes.push(`provider ${req.provider} 未配置或不可用`);
       }
 
-      const key = cacheKey(normalizeQuery(query), req.freshness, req.includeDomains);
+      const key = cacheKey(normalizeQuery(query), req.maxResults, req.freshness, req.includeDomains);
       const cacheUsable = deps.config.cache.enabled && req.useCache && !req.provider;
 
       const cached = cacheUsable ? deps.cache.get(key) : undefined;
@@ -70,18 +70,11 @@ export function makeSearchHandler(deps: ToolDeps) {
         };
       } else {
         const outcome = await runSearch(req, deps, signal);
-        results = outcome.results;
+        results = outcome.results.slice(0, req.maxResults);
         meta = outcome.meta;
         signal?.throwIfAborted();
         if (cacheUsable && results.length > 0) {
-          // D12 配套：as_requested 源的短结果入缓存会毒化后续更大 max_results 的命中
-          // （缓存 key 不含条数、命中只截断不补取），仅取满时才写
-          const winner = meta.provider_used
-            ? deps.config.providers.find(p => p.name === meta.provider_used)
-            : undefined;
-          const cacheable = !winner || winner.fetch_policy !== 'as_requested'
-            || results.length >= deps.config.cache.store_size;
-          if (cacheable) deps.cache.put(key, results, req.freshness === 'day');
+          deps.cache.put(key, results, req.freshness === 'day');
         }
       }
 

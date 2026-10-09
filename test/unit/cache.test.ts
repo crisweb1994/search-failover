@@ -4,16 +4,17 @@ import { cacheKey, normalizeQuery, ResultCache } from '../../src/cache.js';
 describe('normalizeQuery / cacheKey', () => {
   it('大小写与空白折叠视为等价', () => {
     expect(normalizeQuery('  Rust   Tokio ')).toBe('rust tokio');
-    expect(cacheKey(normalizeQuery('Rust Tokio'), undefined, undefined))
-      .toBe(cacheKey(normalizeQuery('rust   tokio'), undefined, undefined));
+    expect(cacheKey(normalizeQuery('Rust Tokio'), 8, undefined, undefined))
+      .toBe(cacheKey(normalizeQuery('rust   tokio'), 8, undefined, undefined));
   });
 
-  it('freshness 与 include_domains 参与 key', () => {
-    const base = cacheKey('q', undefined, undefined);
-    expect(cacheKey('q', 'day', undefined)).not.toBe(base);
-    expect(cacheKey('q', undefined, ['a.com'])).not.toBe(base);
+  it('条数、freshness 与 include_domains 参与 key', () => {
+    const base = cacheKey('q', 8, undefined, undefined);
+    expect(cacheKey('q', 3, undefined, undefined)).not.toBe(base);
+    expect(cacheKey('q', 8, 'day', undefined)).not.toBe(base);
+    expect(cacheKey('q', 8, undefined, ['a.com'])).not.toBe(base);
     // 域名顺序无关
-    expect(cacheKey('q', undefined, ['a.com', 'b.com'])).toBe(cacheKey('q', undefined, ['b.com', 'a.com']));
+    expect(cacheKey('q', 8, undefined, ['a.com', 'b.com'])).toBe(cacheKey('q', 8, undefined, ['b.com', 'a.com']));
   });
 });
 
