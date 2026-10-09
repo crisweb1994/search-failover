@@ -106,19 +106,7 @@ export function loadConfig(): AppConfig {
   }
 
   try {
-    const config = parseConfig(raw);
-    const deprecated: string[] = [];
-    if (Array.isArray(raw.providers) && raw.providers.some(p => p.quota?.quota_retry_s !== undefined)) {
-      deprecated.push('quota.quota_retry_s 已移至 provider.quota_retry_s（顶层优先）');
-    }
-    if (Array.isArray(raw.providers) && raw.providers.some(p => p.fetch_policy !== undefined)) {
-      deprecated.push('fetch_policy 已忽略，统一按 max_results 取数');
-    }
-    if (raw.cache && typeof raw.cache === 'object' && 'store_size' in raw.cache) {
-      deprecated.push('cache.store_size 已忽略，条数分别缓存');
-    }
-    if (deprecated.length) log.info(`配置迁移: ${deprecated.join('；')}`);
-    return config;
+    return parseConfig(raw);
   } catch (err) {
     die(String(err instanceof Error ? err.message : err));
   }
