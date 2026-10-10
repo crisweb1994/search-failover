@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- key 无效而被摘除的来源，后续搜索的跳过原因由 `9007199254741s` 改为 `until_restart`。
 - 结果正文只出现在一个字段：来源给出 `content` 时不再重复返回由它截取的前 300 字 `snippet`，只有短摘要的来源仍返回 `snippet`。按 8 条满长度结果估算，输出约少 13% 字符（未折算 token）。同时，全空白的正文视同缺失，不再挤掉来源自带的短摘要。
 - 配置文件中的未知字段（包括拼错的字段名，如 `enabeld`、`cahce`、`limt`）现在启动即报错并指出位置，不再被静默忽略。此前把 `quota.limit` 拼错，会让付费来源的本地上限悄悄失效。已废弃的 `fetch_policy`、`cache.store_size`、`quota.quota_retry_s` 仍被接受。
 - 上游配额错误的恢复规则与本地请求预算解耦：有效未来恢复时间优先，否则使用 provider 顶层 quota_retry_s（默认 6 小时），不再按本地 reset_day 推算。

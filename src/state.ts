@@ -77,8 +77,7 @@ export class GatewayState {
     const h = this.health.get(name);
     if (!h || h.blockedUntilMs === 0) return null;
     if (Number.isFinite(h.blockedUntilMs) && now >= h.blockedUntilMs) return null;
-    const remainMs = Number.isFinite(h.blockedUntilMs) ? h.blockedUntilMs - now : Number.MAX_SAFE_INTEGER;
-    return { reason: h.reason, remainS: Math.ceil(remainMs / 1000) };
+    return { reason: h.reason, remainS: Number.isFinite(h.blockedUntilMs) ? Math.ceil((h.blockedUntilMs - now) / 1000) : Infinity };
   }
 
   block(name: string, err: ProviderError, cfg: ProviderCfg, defaults: BlockDefaults, now = Date.now()): void {

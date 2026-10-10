@@ -101,7 +101,7 @@ describe('GatewayState 屏蔽（D8）', () => {
   it('auth_failure → 长期摘除，recordSuccess 清零', () => {
     const s = new GatewayState();
     s.block('test', err('auth_failure'), p(), DEFAULTS, NOW);
-    expect(s.checkBlocked('test', NOW + 365 * 86400_000)?.reason).toBe('auth_failure');
+    expect(s.checkBlocked('test', NOW + 365 * 86400_000)).toEqual({ reason: 'auth_failure', remainS: Infinity });
     s.recordSuccess('test');
     expect(s.checkBlocked('test', NOW)).toBeNull();
     expect(s.failStreak('test')).toBe(0);

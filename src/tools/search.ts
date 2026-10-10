@@ -82,7 +82,7 @@ export function makeSearchHandler(deps: ToolDeps) {
         meta.note = meta.note ? `${meta.note}；${notes.join('；')}` : notes.join('；');
       }
 
-      const payload = { results: results.slice(0, req.maxResults), meta };
+      const payload = { results, meta };
       const isError = results.length === 0 && (meta.fallback_chain.length === 0
         || meta.fallback_chain.some(step => step.outcome !== 'no_results'));
       return { isError, content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }] };
