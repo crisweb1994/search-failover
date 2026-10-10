@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, rawRequest, safeJson, parseSuccess, snippetFrom, truncateContent,
+  classifyDefault, FRESHNESS, rawRequest, safeJson, parseSuccess, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
 
@@ -60,7 +60,6 @@ export const zhipu: ProviderAdapter = {
       return {
         title: it.title,
         url: it.link,
-        snippet: snippetFrom(content),
         content,
         publishedDate: it.publish_date ?? undefined,
       };

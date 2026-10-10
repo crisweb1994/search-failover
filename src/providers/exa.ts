@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type Freshness, type RawResult } from '../types.js';
 import {
-  classifyDefault, rawRequest, parseSuccess, snippetFrom, truncateContent,
+  classifyDefault, rawRequest, parseSuccess, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
 
@@ -52,7 +52,6 @@ export const exa: ProviderAdapter = {
       return {
         title: it.title,
         url: it.url,
-        snippet: snippetFrom(content),
         content,
         score: typeof it.score === 'number' ? it.score : undefined,
         publishedDate: it.publishedDate ?? undefined,

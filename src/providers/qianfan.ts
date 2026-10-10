@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
 import {
-  classifyDefault, rawRequest, safeJson, parseSuccess, snippetFrom, truncateContent,
+  classifyDefault, rawRequest, safeJson, parseSuccess, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
 
@@ -86,7 +86,7 @@ export const qianfan: ProviderAdapter = {
       return {
         title: it.title,
         url: it.url,
-        snippet: snippetFrom(content, it.snippet || undefined),
+        snippet: content ? undefined : it.snippet || undefined,
         content,
         score: typeof it.rerank_score === 'number' ? it.rerank_score : undefined,
         publishedDate: it.date ?? undefined,

@@ -33,7 +33,19 @@ describe('博查 adapter 契约', () => {
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ title: '博查结果一', url: 'https://example.com/a', publishedDate: '2026-09-01' });
     expect(results[0]?.content).toContain('网页摘要');
-    expect(results[0]?.snippet).toContain('网页摘要');
+    expect(results[0]?.snippet).toBeUndefined();
+  });
+
+  it('没有 summary（或全空白）时保留来源自带的 snippet，不返回空 content', async () => {
+    for (const summary of [undefined, '   ']) {
+      server.use(http.post('https://api.bochaai.com/v1/web-search', () => HttpResponse.json({
+        code: 200,
+        data: { webPages: { value: [{ name: '博查结果二', url: 'https://example.com/b', snippet: '短摘要', summary }] } },
+      })));
+      const [result] = await call();
+      expect(result?.snippet).toBe('短摘要');
+      expect(result?.content).toBeUndefined();
+    }
   });
 
   it('403 余额不足 → quota_exhausted（不是 auth！）', async () => {

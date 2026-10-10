@@ -75,10 +75,13 @@ describe('Router：顺序兜底与错误处置（对应验收 2/4/5/6/10/13）',
 
   it('401 → 长期摘除，status 可见（验收 4）', async () => {
     const a = new Fake('p1', [err('auth_failure')]);
-    const b = new Fake('p2', [[r('https://ok.com')]]);
+    const b = new Fake('p2', [[r('https://ok.com')], [r('https://ok.com')]]);
     const { deps, state } = mkDeps([a, b]);
     await runSearch(REQ(), deps);
     expect(state.checkBlocked('p1', Date.now() + 365 * 86400_000)?.reason).toBe('auth_failure');
+    const second = await runSearch(REQ(), deps);
+    expect(second.meta.fallback_chain[0]).toMatchObject({ provider: 'p1', outcome: 'skipped:auth_failure', detail: 'until_restart' });
+    expect(a.calls).toBe(1);
   });
 
   it('空结果 → 直接切换；不惩罚不屏蔽（验收 5）', async () => {

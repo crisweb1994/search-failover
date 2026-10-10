@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, parseRetryAfterMs, rawRequest, parseSuccess, snippetFrom, truncateContent,
+  classifyDefault, FRESHNESS, parseRetryAfterMs, rawRequest, parseSuccess, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
 
@@ -47,7 +47,6 @@ export const tavily: ProviderAdapter = {
       return {
         title: it.title,
         url: it.url,
-        snippet: snippetFrom(content),
         content,
         score: typeof it.score === 'number' ? it.score : undefined,
         publishedDate: it.published_date ?? undefined,
@@ -62,7 +61,7 @@ function classify(res: HttpResponseInfo): ProviderError {
     return new ProviderError('tavily', 'rate_limited', 'http_429', { retryAfterMs: parseRetryAfterMs(res.headers) });
   }
   if (res.status === 432 || res.status === 433) {
-    // resetAt 留空，由 state 按 provider 配置的 reset_day 计算月度重置点
+    // 上游没给恢复时间：由 state 按 quota_retry_s 等待，与本地 reset_day 无关
     return new ProviderError('tavily', 'quota_exhausted', `http_${res.status}`);
   }
   return classifyDefault(res, 'tavily');

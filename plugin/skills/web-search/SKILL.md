@@ -18,7 +18,7 @@ Reach for the `search` tool whenever the task depends on information you cannot 
 - `provider`: force a single provider — debugging only, defeats failover.
 - `use_cache`: `false` to bypass cache reads and writes (e.g. breaking news). Default TTL is 1 hour, or 15 minutes for freshness=day; both are configurable. Cache keys include query, requested count and filters, so different counts use separate entries. Nonempty short responses can be cached.
 
-Every result has `title` / `url`. `snippet`, `content`, `publishedDate` and `score` are optional and often missing — fetch the `url` when the snippet is not enough.
+Every result has `title` / `url`. The page text arrives in `content` (when the source returns a longer summary) or in `snippet` (when it only returns a short one) — never both, and sometimes neither. `publishedDate` and `score` are optional too. Fetch the `url` when the text you got is not enough.
 
 ## Decide from `meta.fallback_chain`, not from result count alone
 
@@ -28,7 +28,7 @@ Empty `results` has several very different causes. Check the last entries of `fa
 |---|---|---|
 | results returned | `provider_used` responded | Proceed normally |
 | nonempty chain contains only `no_results` | Attempted providers returned valid empty results | Rewrite the query (broader terms, other language, fewer filters) and retry **once** |
-| `auth_failure` | A provider rejected its credentials | Tell the user that provider's API key is wrong/missing; other providers carry on automatically |
+| `auth_failure` / `skipped:auth_failure` (detail `until_restart`) | A provider rejected its credentials; later searches skip it until the host restarts | Tell the user that provider's API key is wrong/missing; other providers carry on automatically |
 | `rate_limited` / `quota_exhausted` | Provider throttled or out of quota | Failover already ran; if every provider is limited, report the quota situation instead of hammering retries |
 | `skipped:budget_exhausted` | The 30s total budget ran out mid-chain | This search did **not** complete — do not conclude "no results"; optionally retry once later |
 | `skipped:quota_local` | Local quota counter says this provider is spent | Process-local request budget exhausted; an empty incomplete search sets `isError=true` |

@@ -102,16 +102,10 @@ export function parseSuccess<T>(text: string, schema: z.ZodType<T, z.ZodTypeDef,
 }
 
 export const CONTENT_MAX_CHARS = 2000;
-export const SNIPPET_MAX_CHARS = 300;
 
+/** 全空白视同没有正文，免得它挤掉来源自带的短摘要 */
 export function truncateContent(s: string | undefined): string | undefined {
-  return s ? s.slice(0, CONTENT_MAX_CHARS) : undefined;
-}
-
-export function snippetFrom(content: string | undefined, fallback?: string): string | undefined {
-  const c = content?.trim();
-  if (c) return c.slice(0, SNIPPET_MAX_CHARS);
-  return fallback || undefined;
+  return s?.trim() ? s.slice(0, CONTENT_MAX_CHARS) : undefined;
 }
 
 /** freshness → 各源枚举映射表（impl-spec §7；Exa/百度千帆在各自 adapter 里换算，不入此表） */

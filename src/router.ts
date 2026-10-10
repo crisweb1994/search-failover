@@ -81,18 +81,20 @@ export async function runSearch(req: SearchRequest, deps: RouterDeps, requestSig
 
     const blocked = deps.state.checkBlocked(p.cfg.name);
     if (blocked) {
-      chain.push({ provider: p.cfg.name, outcome: `skipped:${blocked.reason}`, detail: `${blocked.remainS}s`, elapsedMs: 0 });
+      chain.push({
+        provider: p.cfg.name, outcome: `skipped:${blocked.reason}`,
+        detail: Number.isFinite(blocked.remainS) ? `${blocked.remainS}s` : 'until_restart', elapsedMs: 0,
+      });
       continue;
     }
 
     // 等待前先跳过满额来源；等待后仍由 tryStart 同步检查并计数。
-    if (p.cfg.quota.type !== 'unbounded' && p.cfg.quota.limit !== undefined
-      && deps.state.used(p.cfg.name, p.cfg) >= p.cfg.quota.limit) {
-      chain.push({
-        provider: p.cfg.name, outcome: 'skipped:quota_local',
-        detail: `${deps.state.used(p.cfg.name, p.cfg)}/${p.cfg.quota.limit}`, elapsedMs: 0,
-      });
-      continue;
+    if (p.cfg.quota.type !== 'unbounded' && p.cfg.quota.limit !== undefined) {
+      const used = deps.state.used(p.cfg.name, p.cfg);
+      if (used >= p.cfg.quota.limit) {
+        chain.push({ provider: p.cfg.name, outcome: 'skipped:quota_local', detail: `${used}/${p.cfg.quota.limit}`, elapsedMs: 0 });
+        continue;
+      }
     }
 
     const budgetLeft = deadline - Date.now();
