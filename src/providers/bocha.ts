@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, rawRequest, safeJson, parseSuccess, snippetFrom, truncateContent,
+  classifyDefault, FRESHNESS, rawRequest, safeJson, parseSuccess, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
 
@@ -41,13 +41,16 @@ export const bocha: ProviderAdapter = {
     if (res.status !== 200) throw classify(res);
     const json = parseSuccess(res.bodyText, z.union([z.object({ data: z.object({ webPages: z.object({ value: z.array(itemSchema) }) }) }), z.object({ webPages: z.object({ value: z.array(itemSchema) }) })]), 'bocha');
     const items = 'data' in json ? json.data.webPages.value : json.webPages.value;
-    return items.map((it): RawResult => ({
-      title: it.name,
-      url: it.url,
-      snippet: snippetFrom(truncateContent(it.summary), it.snippet),
-      content: truncateContent(it.summary),
-      publishedDate: it.datePublished ?? it.dateLastCrawled ?? undefined,
-    }));
+    return items.map((it): RawResult => {
+      const content = truncateContent(it.summary);
+      return {
+        title: it.name,
+        url: it.url,
+        snippet: content ? undefined : it.snippet || undefined,
+        content,
+        publishedDate: it.datePublished ?? it.dateLastCrawled ?? undefined,
+      };
+    });
   },
 };
 

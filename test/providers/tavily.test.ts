@@ -22,11 +22,12 @@ const call = (freshness?: 'day') =>
   tavily.search({ query: 'q', maxResults: 8, freshness, useCache: false }, 20, AbortSignal.timeout(2000));
 
 describe('Tavily adapter 契约', () => {
-  it('正常：snippet=content 前 300 字，score/published_date 透传', async () => {
+  it('正常：content 原样返回且不重复给 snippet，score/published_date 透传', async () => {
     server.use(http.post('https://api.tavily.com/search', () => HttpResponse.json(OK)));
     const results = await call();
     expect(results).toHaveLength(1);
-    expect(results[0]?.snippet?.length).toBe(300);
+    expect(results[0]?.content).toContain('chunk2 content');
+    expect(results[0]?.snippet).toBeUndefined();
     expect(results[0]?.score).toBe(0.87);
     expect(results[0]?.publishedDate).toBe('2026-09-01');
   });

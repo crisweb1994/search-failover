@@ -15,12 +15,12 @@ const OK = {
 const call = () => exa.search({ query: 'q', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(2000));
 
 describe('Exa adapter 契约', () => {
-  it('正常：text→content 截断 2000，snippet=前 300 字', async () => {
+  it('正常：text→content 截断 2000，不重复给 snippet', async () => {
     server.use(http.post('https://api.exa.ai/search', () => HttpResponse.json(OK)));
     const results = await call();
     expect(results).toHaveLength(1);
     expect(results[0]?.content?.length).toBe(2000);
-    expect(results[0]?.snippet?.length).toBe(300);
+    expect(results[0]?.snippet).toBeUndefined();
     expect(results[0]?.publishedDate).toBe('2026-08-01T00:00:00Z');
   });
 

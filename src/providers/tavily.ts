@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { apiKeyFor } from '../credentials.js';
 import { ProviderError, type RawResult } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, parseRetryAfterMs, rawRequest, parseSuccess, snippetFrom, truncateContent,
+  classifyDefault, FRESHNESS, parseRetryAfterMs, rawRequest, parseSuccess, truncateContent,
   type HttpResponseInfo, type ProviderAdapter,
 } from './types.js';
 
@@ -47,7 +47,6 @@ export const tavily: ProviderAdapter = {
       return {
         title: it.title,
         url: it.url,
-        snippet: snippetFrom(content),
         content,
         score: typeof it.score === 'number' ? it.score : undefined,
         publishedDate: it.published_date ?? undefined,

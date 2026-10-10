@@ -201,7 +201,7 @@ ZCode 的 MCP schema 是严格的：`command` 必须是字符串（不能写数�
 | `use_cache`       | true | 相同查询、条数和过滤条件复用；默认 TTL 1 小时，day 为 15 分钟                                                      |
 
 
-返回 `results[]`（title/url 必有，snippet 可缺失）+ `meta`（`provider_used`、完整 `fallback_chain`、`cache_hit`、`note`）。空数组必须结合决策链解释：有错误、屏蔽、额度/预算跳过或无可用来源时，MCP 返回 `isError: true`；只有非空链内全部为合法 `no_results` 时才是正常空结果。
+返回 `results[]`（title/url 必有；正文在 `content`（来源给较长摘要时）或 `snippet`（只有短摘要时），二者不同时出现，也可能都缺失）+ `meta`（`provider_used`、完整 `fallback_chain`、`cache_hit`、`note`）。空数组必须结合决策链解释：有错误、屏蔽、额度/预算跳过或无可用来源时，MCP 返回 `isError: true`；只有非空链内全部为合法 `no_results` 时才是正常空结果。
 
 `status` — 各源屏蔽状态与剩余时长、失败阶梯、配额用量与 90% 预警、缓存命中统计。
 

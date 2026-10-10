@@ -23,14 +23,24 @@ const call = (over: Record<string, unknown> = {}) =>
   qianfan.search({ query: 'q', maxResults: 8, useCache: false, ...over } as never, 20, AbortSignal.timeout(2000));
 
 describe('qianfan adapter 契约', () => {
-  it('正常：title/url/snippet（content 优先）/rerank_score→score/date→publishedDate', async () => {
+  it('正常：title/url/content（有正文时不给 snippet）/rerank_score→score/date→publishedDate', async () => {
     server.use(http.post(URL_API, () => HttpResponse.json(OK)));
     const results = await call();
     expect(results).toHaveLength(2);
     expect(results[0]).toMatchObject({
-      title: '百度结果', url: 'https://example.com/a', snippet: '正文', score: 0.87, publishedDate: '2026-09-01',
+      title: '百度结果', url: 'https://example.com/a', content: '正文', score: 0.87, publishedDate: '2026-09-01',
     });
+    expect(results.map(r => r.snippet)).toEqual([undefined, undefined]);
     expect(results[1]?.score).toBeUndefined();
+  });
+
+  it('没有正文时保留来源自带的 snippet', async () => {
+    server.use(http.post(URL_API, () => HttpResponse.json({ references: [
+      { type: 'web', title: 't', url: 'https://example.com/c', snippet: '只有短摘要' },
+    ] })));
+    const [result] = await call();
+    expect(result?.snippet).toBe('只有短摘要');
+    expect(result?.content).toBeUndefined();
   });
 
   it('messages 单轮结构；query 按官方单位口径（汉字计 2）截断并 note', async () => {

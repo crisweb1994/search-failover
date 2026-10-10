@@ -194,7 +194,7 @@ After a global install you can point directly at the binary: `"command": "search
 | `provider`        | –       | Force a single provider (for debugging)                                                     |
 | `use_cache`       | true    | Same query, count and filters; default TTL 1 hour, 15 minutes for day                                        |
 
-Returns `results[]` (title/url required; snippet optional) + `meta` (`provider_used`, the full `fallback_chain`, `cache_hit`, `note`). Read the decision chain for empty results: errors, blocked/quota/budget skips, or no runnable providers set MCP `isError: true`. Only a nonempty chain containing exclusively valid `no_results` is a normal empty search.
+Returns `results[]` (title/url required; the text is in `content` when the source returns a longer summary, otherwise in `snippet` — never both, and sometimes neither) + `meta` (`provider_used`, the full `fallback_chain`, `cache_hit`, `note`). Read the decision chain for empty results: errors, blocked/quota/budget skips, or no runnable providers set MCP `isError: true`. Only a nonempty chain containing exclusively valid `no_results` is a normal empty search.
 
 `status` — per-provider block state and remaining cooldown, failure streaks, quota usage with a 90% warning threshold, and cache hit statistics.
 

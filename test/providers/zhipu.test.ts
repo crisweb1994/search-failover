@@ -23,11 +23,12 @@ const call = (over: Record<string, unknown> = {}) =>
   zhipu.search({ query: 'q', maxResults: 8, useCache: false, ...over } as never, 20, AbortSignal.timeout(2000));
 
 describe('zhipu adapter 契约', () => {
-  it('正常：link→url，content→snippet+content，publish_date 直传', async () => {
+  it('正常：link→url，content 直传且不重复给 snippet，publish_date 直传', async () => {
     server.use(http.post(URL_API, () => HttpResponse.json(OK)));
     const results = await call();
     expect(results).toHaveLength(2);
-    expect(results[0]).toMatchObject({ title: '智谱结果', url: 'https://example.com/a', snippet: '正文摘要内容', publishedDate: '2026-09-01' });
+    expect(results[0]).toMatchObject({ title: '智谱结果', url: 'https://example.com/a', content: '正文摘要内容', publishedDate: '2026-09-01' });
+    expect(results[0]?.snippet).toBeUndefined();
     expect(results[1]?.publishedDate).toBeUndefined();
   });
 
