@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GatewayState, nextResetMs, paceWaitMs } from '../../src/state.js';
+import { GatewayState, paceWaitMs } from '../../src/state.js';
 import { providerSchema, defaultProviders } from '../../src/config.js';
 import { REGISTRY } from '../../src/providers/registry.js';
 import { ProviderError } from '../../src/types.js';
@@ -69,22 +69,33 @@ describe('GatewayState 屏蔽（D8）', () => {
 
   it('quota_exhausted：直接用 resetAtMs，不走阶梯', () => {
     const s = new GatewayState();
-    s.block('test', err('quota_exhausted', { resetAtMs: NOW + 123_456 }), p(), DEFAULTS, NOW);
+    s.block('test', err('quota_exhausted', { resetAtMs: NOW + 24 * 3600_000 }), p(), DEFAULTS, NOW);
     expect(s.checkBlocked('test', NOW + 1)?.reason).toBe('quota_exhausted');
-    expect(s.checkBlocked('test', NOW + 124_000)).toBeNull();
+    expect(s.checkBlocked('test', NOW + 23 * 3600_000)).not.toBeNull();
+    expect(s.checkBlocked('test', NOW + 24 * 3600_000)).toBeNull();
+    expect(s.failStreak('test')).toBe(0);
   });
 
-  it('quota_exhausted 无精确 resetAt 时按配置：monthly→重置点，one_time→quota_retry_s', () => {
-    const monthly = p({ quota: { type: 'monthly', limit: 1000, reset_day: 15 } });
+  it.each(['monthly', 'one_time', 'unbounded'])('quota_exhausted：%s 缺少恢复时间均等待 6h，不受普通冷却上限限制', type => {
     const s = new GatewayState();
-    s.block('a', err('quota_exhausted'), monthly, DEFAULTS, NOW);
-    expect(s.checkBlocked('a', new Date('2026-10-14T23:00:00').getTime())).not.toBeNull();
-    expect(s.checkBlocked('a', new Date('2026-10-15T00:00:01').getTime())).toBeNull();
+    const cfg = p({ quota: { type, limit: 1000, reset_day: 15 } });
+    s.block('test', err('quota_exhausted'), cfg, DEFAULTS, NOW);
+    expect(s.checkBlocked('test', NOW + 5 * 3600_000)).not.toBeNull();
+    expect(s.checkBlocked('test', NOW + 6 * 3600_000)).toBeNull();
+    expect(s.failStreak('test')).toBe(0);
+  });
 
-    const oneTime = p({ quota: { type: 'one_time', quota_retry_s: 3600 } });
-    s.block('b', err('quota_exhausted'), oneTime, DEFAULTS, NOW);
-    expect(s.checkBlocked('b', NOW + 3000_000)).not.toBeNull();
-    expect(s.checkBlocked('b', NOW + 3601_000)).toBeNull();
+  it.each([NOW - 1, NOW, NaN, Infinity, -Infinity])('无效或过期的上游时间 %s 回退到配置间隔', resetAtMs => {
+    const s = new GatewayState();
+    s.block('test', err('quota_exhausted', { resetAtMs }), p({ quota_retry_s: 600 }), DEFAULTS, NOW);
+    expect(s.checkBlocked('test', NOW + 599_000)).not.toBeNull();
+    expect(s.checkBlocked('test', NOW + 600_000)).toBeNull();
+  });
+
+  it('quota_retry_s=0 不施加健康冷却', () => {
+    const s = new GatewayState();
+    s.block('test', err('quota_exhausted'), p({ quota_retry_s: 0 }), DEFAULTS, NOW);
+    expect(s.checkBlocked('test', NOW)).toBeNull();
   });
 
   it('auth_failure → 长期摘除，recordSuccess 清零', () => {
@@ -97,22 +108,7 @@ describe('GatewayState 屏蔽（D8）', () => {
   });
 });
 
-describe('nextReset / pace 辅助函数', () => {
-  it('nextResetMs：过了本月 reset_day 则到下月', () => {
-    const now = new Date('2026-09-20T10:00:00').getTime();
-    expect(nextResetMs(now, 15)).toBe(new Date(2026, 9, 15, 0, 0, 0, 0).getTime()); // 9/15 已过 → 10/15
-    expect(nextResetMs(now, 25)).toBe(new Date(2026, 8, 25, 0, 0, 0, 0).getTime()); // 9/25 未到
-  });
-
-  it('nextResetMs：reset_day=31 在 30 天月份 clamp 到月末，不滚入下月', () => {
-    const sep20 = new Date('2026-09-20T10:00:00').getTime();
-    expect(nextResetMs(sep20, 31)).toBe(new Date(2026, 8, 30, 0, 0, 0, 0).getTime()); // 9/30，而非 10/1
-    const sep30 = new Date('2026-09-30T10:00:00').getTime();
-    expect(nextResetMs(sep30, 31)).toBe(new Date(2026, 9, 31, 0, 0, 0, 0).getTime()); // 9/30 已过 → 10/31（大月正常）
-    const feb = new Date('2026-02-10T10:00:00').getTime();
-    expect(nextResetMs(feb, 31)).toBe(new Date(2026, 1, 28, 0, 0, 0, 0).getTime()); // 2 月 clamp 到 2/28，未到 → 2/28
-  });
-
+describe('pace 辅助函数', () => {
   it('paceWaitMs：间隔不足补齐', () => {
     expect(paceWaitMs(undefined, 1050, NOW)).toBe(0);
     expect(paceWaitMs(NOW - 100, 1050, NOW)).toBe(950);

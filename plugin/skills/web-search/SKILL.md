@@ -16,7 +16,7 @@ Reach for the `search` tool whenever the task depends on information you cannot 
 - `freshness`: `day` / `week` / `month` / `year` for time-sensitive questions. Providers apply their own time semantics; Qianfan ignores `day` and reports it in `meta.note`. `publishedDate` is best-effort.
 - `include_domains`: restrict results to specific sites (e.g. docs sites). Support varies by provider; some ignore it.
 - `provider`: force a single provider — debugging only, defeats failover.
-- `use_cache`: `false` to bypass the 1-hour cache (e.g. breaking news).
+- `use_cache`: `false` to bypass cache reads and writes (e.g. breaking news). Default TTL is 1 hour, or 15 minutes for freshness=day; both are configurable. Cache keys include query, requested count and filters, so different counts use separate entries. Nonempty short responses can be cached.
 
 Every result has `title` / `url`. `snippet`, `content`, `publishedDate` and `score` are optional and often missing — fetch the `url` when the snippet is not enough.
 
@@ -50,3 +50,5 @@ No-argument dashboard: per-provider blocked state and remaining cooldown, quota 
 - A key alone does **not** activate Zhipu / Qianfan / Serper: they are opt-in and must be enabled in `search-failover.json` (refer the user to the search-failover README if they ask why a keyed provider shows as disabled in `status`).
 
 Counters, cooldowns and cache are per process and reset on restart. `used_requests` counts approved upstream attempts, including failures and cancellation after admission; `used_this_month` is a deprecated alias, not an account balance.
+
+All providers fetch only the requested count, capped by their own maximum. Quota-error health cooldowns use a valid future upstream recovery time, or top-level provider `quota_retry_s` (default 6 hours); local reset_day affects only the request counter. Recovery does not bypass an exhausted local budget and does not trigger background probes. Legacy quota.quota_retry_s is promoted; fetch_policy and cache.store_size are accepted but ignored.

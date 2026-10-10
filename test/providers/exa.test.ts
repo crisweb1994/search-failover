@@ -40,7 +40,7 @@ describe('Exa adapter 契约', () => {
     expect(days).toBeLessThan(7.1);
   });
 
-  it('402 → quota_exhausted（一次性 credit，resetAt 由 state 用 quota_retry_s）', async () => {
+  it('402 → quota_exhausted（缺少上游恢复时间，state 使用 provider.quota_retry_s）', async () => {
     server.use(http.post('https://api.exa.ai/search', () =>
       new HttpResponse(JSON.stringify({ error: 'out of credits', tag: 'INSUFFICIENT_CREDITS' }), { status: 402 })));
     const err = await expectProviderError(call(), 'quota_exhausted');

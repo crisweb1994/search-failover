@@ -192,7 +192,7 @@ After a global install you can point directly at the binary: `"command": "search
 | `freshness`       | –       | `day / week / month / year`                                                                 |
 | `include_domains` | –       | Only return results from these domains (native on Tavily/Exa/Qianfan; single-domain on Brave/Zhipu/Serper; ignored by Bocha/DDG) |
 | `provider`        | –       | Force a single provider (for debugging)                                                     |
-| `use_cache`       | true    | Same-argument queries served from cache within 1 hour                                        |
+| `use_cache`       | true    | Same query, count and filters; default TTL 1 hour, 15 minutes for day                                        |
 
 Returns `results[]` (title/url required; snippet optional) + `meta` (`provider_used`, the full `fallback_chain`, `cache_hit`, `note`). Read the decision chain for empty results: errors, blocked/quota/budget skips, or no runnable providers set MCP `isError: true`. Only a nonempty chain containing exclusively valid `no_results` is a normal empty search.
 
@@ -204,6 +204,7 @@ Returns `results[]` (title/url required; snippet optional) + `meta` (`provider_u
 - **Error classification**: each adapter maps real signals to `rate_limited / quota_exhausted / auth_failure / timeout / network / server_error / request_error / no_results` (e.g. Bocha 403 = out of balance, Brave 429 body distinguishes per-second throttling from monthly quota, Zhipu 429+1113 = arrears, Serper 402 = credit exhausted, DDG 202 anomaly page = throttled).
 - **Tiered cooldown**: each provider keeps `{blockedUntil, reason, failStreak}`; repeated failures double the cooldown up to a cap, then it lifts naturally at the deadline. No state machine, no circuit breaker.
 - **Quota soft gate**: once the local counter reaches the configured `limit`, the provider is skipped with `skipped:quota_local` (no request sent); the authoritative stop signal remains upstream quota errors. Each synchronously admitted upstream attempt counts, including errors and cancellation after admission. Cache hits and cancellation while waiting do not. This is a conservative local request budget, not a bill. `monthly` resets at local-time reset_day; `one_time` accumulates for the process lifetime. `status.used_requests` is the new field; `used_this_month` remains a deprecated equal-value alias.
+- **Upstream quota recovery**: use a valid future reset time returned by the provider; if missing, invalid or expired, wait for top-level provider `quota_retry_s` (default 21,600 seconds). Local `reset_day` never determines upstream recovery. No background probes run; the next search must still pass the local request budget gate.
 - **Total budget 30s**: exhaustion records `skipped:budget_exhausted` and ends the search without penalizing provider health. Not every provider is guaranteed a turn. Client cancellation stops waiting/requests and prevents further fallback.
 - **Opt-in against accidental drain**: paid / one-time-credit providers (Zhipu/Qianfan/Serper) stay out of the chain until explicitly enabled in the config file.
 
@@ -214,7 +215,20 @@ Counters, pacing, cooldowns and cache are process-local, reset on restart, and a
 
 Pricing references (2026-10-04): [Brave](https://api-dashboard.search.brave.com/documentation/pricing)'s 1,000 attempts are a reference derived from monthly credits; local QPS stays at 1. [Exa](https://exa.ai/pricing) credits reset monthly; 800 is a retained local cap, not a guarantee of free usage. Serper credit tiers still require live verification; no guessed cost multiplier is applied.
 
-DuckDuckGo needs no key but is subject to network and anti-bot restrictions. Providers apply different freshness semantics; Qianfan ignores `day` with a note. Cache hits retain the winning provider's degradation notes. Exa, cache-disabled requests and forced-provider requests fetch only the requested count.
+DuckDuckGo needs no key but is subject to network and anti-bot restrictions. Providers apply different freshness semantics; Qianfan ignores `day` with a note. Cache hits retain the winning provider's degradation notes. All providers fetch `min(max_results, provider maximum)` without prefetching. Requested counts participate in cache keys, so different counts use separate entries and nonempty short responses can be cached. No extra requests fill short results. Forced-provider requests, use_cache=false and globally disabled caching bypass both reads and writes. Configure the TTLs with `cache.ttl_s` and `cache.ttl_fresh_s`; the latter applies to freshness=day.
+
+### Configuration migration
+
+`quota` describes only the local request budget. The fallback wait for upstream quota errors is now top-level provider `quota_retry_s`. For example, `{ "name": "bocha", "quota_retry_s": 600 }` waits 10 minutes when the upstream supplies no valid recovery time, then permits an attempt on the next search. Zero applies no quota-error health cooldown; local budgets and pacing still apply.
+
+Legacy fields remain accepted and validated against their original ranges:
+
+- `quota.quota_retry_s` is promoted to the provider level. An explicit top-level value wins; invalid legacy values still fail.
+- `provider.fetch_policy` and `cache.store_size` are ignored and no longer control fetching or cache writes.
+
+Startup emits at most one combined migration notice to stderr, respecting LOG. Config files are never rewritten.
+
+Separate cache entries for different counts may increase upstream requests. Users with a small legacy store_size may fetch more results per request, and a fixed recovery interval can cause periodic attempts against providers still out of balance. Actual cost depends on billing and usage; lower cost is not guaranteed.
 
 ## Development
 

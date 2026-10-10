@@ -9,7 +9,10 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 const dir = mkdtempSync(join(tmpdir(), 'search-failover-smoke-'));
 const config = join(dir, 'config.json');
 const mock = join(dir, 'mock.mjs');
-writeFileSync(config, JSON.stringify({ providers: [{ name: 'duckduckgo', min_interval_ms: 0 }] }));
+writeFileSync(config, JSON.stringify({
+  providers: [{ name: 'duckduckgo', min_interval_ms: 0, fetch_policy: 'cache_fill', quota: { quota_retry_s: 600 } }],
+  cache: { store_size: 2 },
+}));
 writeFileSync(mock, `globalThis.fetch = async () => new Response('<div class="result"><a class="result__a" href="https://example.com">Smoke result</a></div>');`);
 const client = new Client({ name: 'runtime-smoke', version: '1' });
 const transport = new StdioClientTransport({
@@ -27,12 +30,18 @@ try {
   const payload = JSON.parse(result.content[0].text);
   assert.equal(payload.results[0].title, 'Smoke result');
   assert.equal(payload.meta.provider_used, 'duckduckgo');
+  const warm = await client.callTool({ name: 'search', arguments: { query: 'smoke', max_results: 1 } });
+  assert.equal(JSON.parse(warm.content[0].text).meta.cache_hit, true);
+  const more = await client.callTool({ name: 'search', arguments: { query: 'smoke', max_results: 8 } });
+  assert.equal(JSON.parse(more.content[0].text).meta.cache_hit, false);
   const invalid = await client.callTool({ name: 'search', arguments: { query: '  ' } });
   assert.equal(invalid.isError, true);
   const unavailable = await client.callTool({ name: 'search', arguments: { query: 'q', provider: 'missing' } });
   assert.equal(unavailable.isError, true);
   const status = await client.callTool({ name: 'status', arguments: {} });
-  assert.equal(JSON.parse(status.content[0].text).providers[0].used_requests, 1);
+  const stats = JSON.parse(status.content[0].text);
+  assert.equal(stats.providers[0].used_requests, 2);
+  assert.equal(stats.cache.entries, 2);
   console.log(`stdio smoke passed (${process.version}; mocked upstream; ${process.argv[2] ?? 'dist/index.js'})`);
 } finally {
   await client.close();

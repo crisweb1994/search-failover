@@ -198,7 +198,7 @@ ZCode 的 MCP schema 是严格的：`command` 必须是字符串（不能写数�
 | `freshness`       | –    | `day / week / month / year`                                       |
 | `include_domains` | –    | 仅返回这些域名的结果（Tavily/Exa/百度 原生支持，Brave/智谱/Serper 支持单域名，博查/DDG 忽略该参数） |
 | `provider`        | –    | 强制指定单一源（调试用）                                                   |
-| `use_cache`       | true | 同参数 1 小时内秒回                                                      |
+| `use_cache`       | true | 相同查询、条数和过滤条件复用；默认 TTL 1 小时，day 为 15 分钟                                                      |
 
 
 返回 `results[]`（title/url 必有，snippet 可缺失）+ `meta`（`provider_used`、完整 `fallback_chain`、`cache_hit`、`note`）。空数组必须结合决策链解释：有错误、屏蔽、额度/预算跳过或无可用来源时，MCP 返回 `isError: true`；只有非空链内全部为合法 `no_results` 时才是正常空结果。
@@ -211,6 +211,7 @@ ZCode 的 MCP schema 是严格的：`command` 必须是字符串（不能写数�
 - **错误分类**：每家 adapter 把真实信号映射为 `rate_limited / quota_exhausted / auth_failure / timeout / network / server_error / request_error / no_results`（如博查 403=余额不足、Brave 429 体区分秒级限速与月配额、智谱 429+1113=欠费、Serper 402=credit 耗尽、DDG 202 异常页=限流）。
 - **阶梯冷却**：每源一个 `{blockedUntil, reason, failStreak}`，重复失败翻倍封顶，到点自然放行。无状态机、无熔断器。
 - **配额软闸门**：本地计数达到配置的 `limit` 时该源记 `skipped:quota_local` 直接跳过（不再发请求）；权威停发仍是上游配额类错误。计数口径为“同步批准一次上游尝试即计数”，错误和批准后的取消也计数；缓存命中、等待中取消不计数。它是保守的本地请求预算，不模拟供应商账单。`monthly` 按本地时区/reset_day 重置，`one_time` 按进程累计；`status.used_requests` 为新字段，`used_this_month` 暂留同值兼容别名。
+- **上游配额恢复**：优先采用上游明确返回的有效未来恢复时间；缺失、无效或已过期时，按来源顶层 `quota_retry_s` 等待（默认 21600 秒）。不根据本地 `reset_day` 推算上游恢复，也不后台探测；到期后的下一次搜索仍须通过本地预算闸门。
 - **总预算 30s**：预算耗尽记录 `skipped:budget_exhausted` 后结束；不保证全链都被尝试，也不因预算不足惩罚来源健康。取消请求会停止等待/请求且不继续兜底。
 - **opt-in 防误耗**：付费/一次性额度源（智谱/百度/Serper）默认不进链，须配置文件显式开启。
 
@@ -221,7 +222,20 @@ ZCode 的 MCP schema 是严格的：`command` 必须是字符串（不能写数�
 
 价格依据（2026-10-04）：[Brave](https://api-dashboard.search.brave.com/documentation/pricing) 的 1000 是月度 credits 折算参考，本地 QPS 保持 1；[Exa](https://exa.ai/pricing) 按月重置 credits，800 仅为兼容的本地上限，不保证落在免费额度内。Serper 分档计费尚待实测，本地不按推测倍数扣费。
 
-DuckDuckGo 免 key，但受网络和反爬限制。`freshness` 由各源执行，日期语义和粒度可能不同，千帆 `day` 会忽略并提示。缓存命中保留获胜来源的降级说明。Exa、禁用缓存和指定来源的调用按需取数，不为潜在缓存命中预取。
+DuckDuckGo 免 key，但受网络和反爬限制。`freshness` 由各源执行，日期语义和粒度可能不同，千帆 `day` 会忽略并提示。缓存命中保留获胜来源的降级说明。所有来源均按 `min(max_results, 来源条数上限)` 取数，不预取。条数参与缓存 key；不同条数分别缓存，非空短结果也可缓存，不为补足条数追加请求。指定 provider、use_cache=false 或全局关闭缓存时均绕过读写。两档 TTL 可通过 `cache.ttl_s` / `cache.ttl_fresh_s` 调整，后者用于 freshness=day。
+
+### 配置迁移
+
+`quota` 只描述本地请求预算；上游配额错误的等待间隔改为 provider 顶层 `quota_retry_s`。例如 `{ "name": "bocha", "quota_retry_s": 600 }` 表示缺少上游恢复时间时等待 10 分钟，再由下一次搜索尝试。`0` 表示不施加该类健康冷却，仍受本地预算和限速约束。
+
+旧配置继续接受以下字段并校验原有合法值：
+
+- `quota.quota_retry_s` 提升到顶层；同时配置时顶层值优先，非法旧值仍报错。
+- `provider.fetch_policy` 与 `cache.store_size` 已忽略，不再控制取数或缓存写入。
+
+启动时最多输出一条合并迁移提示到 stderr，遵循 LOG 设置。配置文件不会被自动改写。
+
+不同条数不再共享缓存，可能增加请求次数；旧 store_size 较小时按需取数也可能增加单次返回量。固定恢复间隔可能带来对仍欠费来源的定期尝试。实际费用取决于供应商计费与使用分布，不承诺降低成本。
 
 ## 开发
 

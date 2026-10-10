@@ -1,60 +1,92 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { makeSearchHandler } from '../../src/tools/search.js';
-import { configSchema, type AppConfig } from '../../src/config.js';
+import { configSchema, parseConfig } from '../../src/config.js';
 import { GatewayState } from '../../src/state.js';
-import { ResultCache } from '../../src/cache.js';
+import { cacheKey, ResultCache } from '../../src/cache.js';
 import type { ProviderEntry } from '../../src/router.js';
-import type { RawResult } from '../../src/types.js';
+import type { RawResult, SearchRequest } from '../../src/types.js';
 
-/** D12 配套：as_requested 源的短结果不得入缓存（缓存 key 不含条数，命中只截断不补取） */
-describe('search 工具：as_requested 缓存写入规则', () => {
-  function build(fetchPolicy: 'cache_fill' | 'as_requested', script: RawResult[][], storeSize: number) {
-    const config: AppConfig = configSchema.parse({
-      providers: [{ name: 'p1', priority: 1, quota: { type: 'unbounded' }, fetch_policy: fetchPolicy }],
-      cache: { store_size: storeSize },
-      defaults: { timeout_ms: 1000 },
-    });
+describe('search 工具：按需缓存', () => {
+  function build(script: RawResult[][], over: Record<string, unknown> = {}) {
+    const config = parseConfig({ providers: [{ name: 'exa' }], ...over });
     let call = 0;
-    const adapter = {
-      name: 'p1',
-      maxCount: 50,
-      async search() { return script[Math.min(call++, script.length - 1)] ?? []; },
-    };
+    const search = vi.fn(async (_req: SearchRequest, _count: number, _signal: AbortSignal) => script[call++] ?? []);
     const cache = new ResultCache(config.cache);
-    const providers: ProviderEntry[] = [{ cfg: config.providers[0]!, adapter: adapter as never }];
+    const providers: ProviderEntry[] = [{ cfg: config.providers[0]!, adapter: { name: 'exa', maxCount: 100, search } }];
     const deps = { config, providers, state: new GatewayState(), cache };
-    return { handler: makeSearchHandler(deps), cache, adapter };
+    return { handler: makeSearchHandler(deps), deps, search };
   }
-
   const args = (max: number) => ({ query: 'q', max_results: max, use_cache: true });
+  const rows = (count: number, prefix = 'r'): RawResult[] =>
+    Array.from({ length: count }, (_, i) => ({ title: `${prefix}${i}`, url: `https://x.com/${prefix}${i}` }));
+  const payload = (out: { content: { text: string }[] }) => JSON.parse(out.content[0]!.text);
 
-  it('as_requested：短结果（< store_size）不写缓存，第二次重查', async () => {
-    const { handler, cache, adapter } = build('as_requested', [
-      [{ title: 't', url: 'https://x.com/1' }],
-      [{ title: 't', url: 'https://x.com/2' }],
-    ], 2);
-    const first = await handler(args(1));
-    expect(JSON.parse(first.content[0].text).meta.cache_hit).toBe(false);
-    expect(cache.size).toBe(0); // 1 条 < store_size 2，不写
-    const second = await handler(args(1));
-    expect(JSON.parse(second.content[0].text).meta.cache_hit).toBe(false);
-    expect((adapter as { search: () => Promise<RawResult[]> }).search).toBeTruthy();
+  it('默认 Exa 的短结果也缓存，同参数第二次不调用上游、不计数', async () => {
+    const { handler, deps, search } = build([rows(2)]);
+    const cold = payload(await handler(args(8)));
+    const warm = payload(await handler(args(8)));
+    expect(cold.meta.cache_hit).toBe(false);
+    expect(warm.meta.cache_hit).toBe(true);
+    expect(warm.results).toEqual(cold.results);
+    expect(warm.results).toHaveLength(2);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search.mock.calls[0]![1]).toBe(8);
+    expect(deps.state.used('exa', deps.config.providers[0]!)).toBe(1);
   });
 
-  it('as_requested：取满（= store_size）才写缓存', async () => {
-    const { handler, cache } = build('as_requested', [
-      [{ title: 't', url: 'https://x.com/1' }, { title: 't2', url: 'https://x.com/2' }],
-    ], 2);
-    await handler(args(2));
-    expect(cache.size).toBe(1);
+  it('3 条与 8 条分别缓存，重复请求各自命中', async () => {
+    const { handler, deps, search } = build([rows(3), rows(8)]);
+    expect(payload(await handler(args(3))).meta.cache_hit).toBe(false);
+    expect(payload(await handler(args(8))).meta.cache_hit).toBe(false);
+    const three = payload(await handler(args(3)));
+    const eight = payload(await handler(args(8)));
+    expect(three.meta.cache_hit).toBe(true);
+    expect(eight.meta.cache_hit).toBe(true);
+    expect(three.results).toHaveLength(3);
+    expect(eight.results).toHaveLength(8);
+    expect(search.mock.calls.map(call => call[1])).toEqual([3, 8]);
+    expect(deps.cache.size).toBe(2);
   });
 
-  it('cache_fill：短结果也照常写缓存（现状不变）', async () => {
-    const { handler, cache } = build('cache_fill', [
-      [{ title: 't', url: 'https://x.com/1' }],
-    ], 20);
-    await handler(args(1));
-    expect(cache.size).toBe(1);
+  it('旧 store_size 不限制取数，上游超量结果截断后才缓存', async () => {
+    const { handler, deps, search } = build([rows(10)], {
+      providers: [{ name: 'exa', fetch_policy: 'cache_fill' }], cache: { store_size: 2 },
+    });
+    const cold = payload(await handler(args(8)));
+    const warm = payload(await handler(args(8)));
+    expect(search.mock.calls[0]![1]).toBe(8);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(cold.results).toHaveLength(8);
+    expect(warm.results).toEqual(cold.results);
+    expect(deps.cache.get(cacheKey('q', 8, undefined, undefined))).toEqual(cold.results);
+  });
+
+  it.each(['use_cache=false', 'provider', 'disabled'])('%s 绕过读写，不覆盖已有缓存', async mode => {
+    const { handler, deps, search } = build([rows(1, 'cached'), rows(1, 'fresh')]);
+    await handler(args(8));
+    const stats = { hits: deps.cache.hits, misses: deps.cache.misses };
+    if (mode === 'disabled') deps.config.cache.enabled = false;
+    const bypass = { ...args(8), use_cache: mode !== 'use_cache=false', provider: mode === 'provider' ? 'exa' : undefined };
+    const fresh = payload(await handler(bypass));
+    expect(fresh.meta.cache_hit).toBe(false);
+    expect(fresh.results[0].title).toBe('fresh0');
+    expect({ hits: deps.cache.hits, misses: deps.cache.misses }).toEqual(stats);
+    deps.config.cache.enabled = true;
+    const cached = payload(await handler(args(8)));
+    expect(cached.meta.cache_hit).toBe(true);
+    expect(cached.results[0].title).toBe('cached0');
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(deps.state.used('exa', deps.config.providers[0]!)).toBe(2);
+  });
+
+  it('adapter 返回时已取消的非空结果不进入缓存', async () => {
+    const { handler, deps, search } = build([]);
+    const controller = new AbortController();
+    search.mockImplementationOnce(async () => { controller.abort(); return rows(1); });
+    await expect(handler(args(8), { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(deps.cache.size).toBe(0);
+    expect(deps.state.checkBlocked('exa')).toBeNull();
+    expect(deps.state.used('exa', deps.config.providers[0]!)).toBe(1);
   });
 });
 
@@ -75,6 +107,7 @@ describe('工具错误语义、缓存解释与 status', () => {
   it('合法空结果 isError=false；全失败、额度跳过、无来源 isError=true', async () => {
     const empty = setup([]);
     expect((await empty.handler(args)).isError).toBe(false);
+    expect(empty.deps.cache.size).toBe(0);
     expect((await empty.handler(args)).isError).toBe(true); // 已用完本地额度
     expect((await setup(new Error('network')).handler(args)).isError).toBe(true);
     empty.deps.providers = [];

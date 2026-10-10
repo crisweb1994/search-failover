@@ -9,11 +9,12 @@ export function normalizeQuery(q: string): string {
 
 export function cacheKey(
   normalized: string,
+  maxResults: number,
   freshness: Freshness | undefined,
   includeDomains: string[] | undefined,
 ): string {
   const domains = (includeDomains ?? []).slice().sort().join(',');
-  return createHash('sha1').update(`${normalized}\0${freshness ?? ''}\0${domains}`).digest('hex');
+  return createHash('sha1').update(`${normalized}\0${maxResults}\0${freshness ?? ''}\0${domains}`).digest('hex');
 }
 
 /** 最简 TTL Map（D9）：两档 TTL + 条数上限 LRU 逐出 + 每 16 次 put 惰性清扫过期条目，无负缓存 / single-flight */

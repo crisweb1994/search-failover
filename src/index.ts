@@ -17,7 +17,7 @@ const SEARCH_DESCRIPTION = [
   '每条结果必有 title/url；snippet/content/publishedDate/score 为部分源提供的可选字段（可能缺失，缺失时请自行访问 url）。',
   'publishedDate 尽力而为；freshness 由各源执行，粒度和日期语义可能不同（千帆 day 会忽略并提示）。',
   `仅搜特定域名用 include_domains（${domainFilterDescribe()}）。`,
-  '同参数 1 小时内命中缓存（use_cache=false 可关闭）；空结果需查看 fallback_chain；错误或跳过导致搜索未完成时 isError=true。总预算内不保证尝试全部来源；DDG 免 key，但可用性取决于网络和反爬限制。',
+  '相同查询、条数和过滤条件可命中缓存（默认 TTL 1 小时，day 为 15 分钟，可配置；use_cache=false 绕过读写）；空结果需查看 fallback_chain；错误或跳过导致搜索未完成时 isError=true。总预算内不保证尝试全部来源；DDG 免 key，但可用性取决于网络和反爬限制。',
   defaultChainDescribe(),
 ].join('');
 
