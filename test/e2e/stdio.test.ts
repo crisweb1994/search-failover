@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,4 +53,20 @@ describe('stdio e2e', () => {
     expect(errors).toEqual([]);
     expect(stderr).not.toContain('配置迁移');
   }, 25000);
+
+  it('配置里有拼错的字段 → 启动失败并指出位置', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'search-failover-badconfig-'));
+    const config = join(dir, 'config.json');
+    writeFileSync(config, JSON.stringify({ providers: [{ name: 'zhipu', quota: { type: 'one_time', limt: 100 } }] }));
+    try {
+      const result = spawnSync(process.execPath, ['--import', 'tsx', 'src/index.ts'], {
+        cwd: process.cwd(), encoding: 'utf8', timeout: 15000,
+        env: { PATH: process.env.PATH ?? '', LOG: 'error', SEARCH_FAILOVER_CONFIG: config },
+      });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('providers.0.quota: 未知字段 limt');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20000);
 });

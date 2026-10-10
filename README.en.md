@@ -209,7 +209,7 @@ Returns `results[]` (title/url required; snippet optional) + `meta` (`provider_u
 - **Opt-in against accidental drain**: paid / one-time-credit providers (Zhipu/Qianfan/Serper) stay out of the chain until explicitly enabled in the config file.
 
 
-Omitted provider fields inherit that source's default priority, pacing, quota and cooldown. Opt-in providers still need explicit `enabled: true`. `providers: []` is an empty chain; unknown/duplicate names and invalid numbers fail at startup. Quota fields merge within the same type; changing type replaces them. Use `quota: { "type": "unbounded" }` to disable the local request limit.
+Omitted provider fields inherit that source's default priority, pacing, quota and cooldown. Opt-in providers still need explicit `enabled: true`. `providers: []` is an empty chain; unknown/duplicate names, unknown fields (including misspelled ones, such as `limt` for `limit`) and invalid numbers fail at startup, with the path of the offending field. Quota fields merge within the same type; changing type replaces them. Use `quota: { "type": "unbounded" }` to disable the local request limit.
 
 Counters, pacing, cooldowns and cache are process-local, reset on restart, and are not shared across hosts or other applications using the same key. Local limits are not account balances or free-tier guarantees.
 
@@ -226,7 +226,7 @@ Legacy fields remain accepted and validated against their original ranges:
 - `quota.quota_retry_s` is promoted to the provider level. An explicit top-level value wins; invalid legacy values still fail.
 - `provider.fetch_policy` and `cache.store_size` are ignored and no longer control fetching or cache writes.
 
-Startup emits at most one combined migration notice to stderr, respecting LOG. Config files are never rewritten.
+These legacy fields produce no notice and config files are never rewritten; any other unknown field is an error (see above).
 
 Separate cache entries for different counts may increase upstream requests. Users with a small legacy store_size may fetch more results per request, and a fixed recovery interval can cause periodic attempts against providers still out of balance. Actual cost depends on billing and usage; lower cost is not guaranteed.
 

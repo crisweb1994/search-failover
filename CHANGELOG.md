@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- 配置文件中的未知字段（包括拼错的字段名，如 `enabeld`、`cahce`、`limt`）现在启动即报错并指出位置，不再被静默忽略。此前把 `quota.limit` 拼错，会让付费来源的本地上限悄悄失效。已废弃的 `fetch_policy`、`cache.store_size`、`quota.quota_retry_s` 仍被接受。
 - 上游配额错误的恢复规则与本地请求预算解耦：有效未来恢复时间优先，否则使用 provider 顶层 quota_retry_s（默认 6 小时），不再按本地 reset_day 推算。
 - 所有来源统一按 max_results 按需取数；条数纳入缓存 key，非空短结果可缓存，输出与缓存均限制在请求条数内。
 - 旧 quota.quota_retry_s 在配置入口提升到顶层；fetch_policy 与 cache.store_size 继续验证但已忽略，运行时删除预取策略和取满才缓存的分支。

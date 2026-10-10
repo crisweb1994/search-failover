@@ -9,7 +9,7 @@ const quotaSchema = z.object({
   type: z.enum(['monthly', 'one_time', 'unbounded']).default('unbounded'),
   limit: z.number().int().nonnegative().optional(),
   reset_day: z.number().int().min(1).max(31).optional(),
-});
+}).strict();
 
 export const providerSchema = z.object({
   name: z.string(),
@@ -24,27 +24,27 @@ export const providerSchema = z.object({
   min_interval_ms: z.number().int().nonnegative().optional(),
   /** 该源冷却时长上限覆盖（秒）；DDG 被封需要 6h */
   cooldown_max_s: z.number().finite().nonnegative().optional(),
-});
+}).strict();
 
 const defaultsSchema = z.object({
   timeout_ms: z.number().int().positive().default(10000),
   total_budget_ms: z.number().int().positive().default(30000),
   cooldown_default_s: z.number().finite().nonnegative().default(60),
   cooldown_max_s: z.number().finite().nonnegative().default(3600),
-});
+}).strict();
 
 const cacheSchema = z.object({
   enabled: z.boolean().default(true),
   ttl_s: z.number().finite().nonnegative().default(3600),
   ttl_fresh_s: z.number().finite().nonnegative().default(900),
   max_entries: z.number().int().nonnegative().default(512),
-});
+}).strict();
 
 export const configSchema = z.object({
   providers: z.array(providerSchema),
   defaults: defaultsSchema.default({}),
   cache: cacheSchema.default({}),
-});
+}).strict();
 
 export type ProviderCfg = z.infer<typeof providerSchema>;
 export type AppConfig = z.infer<typeof configSchema>;
@@ -54,7 +54,11 @@ export function defaultProviders(): ProviderCfg[] {
   return defaultProviderConfigs().map(p => providerSchema.parse(p));
 }
 
-/** 名单由用户决定；仅继承所列来源的默认字段，不做递归合并。 */
+/**
+ * 名单由用户决定；仅继承所列来源的默认字段，不做递归合并。
+ * 旧字段（fetch_policy / cache.store_size / quota.quota_retry_s）仍按原范围校验，但在进入严格校验前剥离；
+ * 其余未知字段（多半是拼错的字段名）一律报错，避免 `limt` 这类拼写让付费来源的本地上限悄悄失效。
+ */
 export function parseConfig(input: unknown): AppConfig {
   const raw = z.object({
     providers: z.array(z.object({
@@ -67,16 +71,27 @@ export function parseConfig(input: unknown): AppConfig {
   }).passthrough().parse(input);
   const defaults = defaultProviders();
   const seen = new Set<string>();
-  const providers = raw.providers?.map(p => {
+  const providers = raw.providers?.map(({ fetch_policy: _fetchPolicy, quota: given, quota_retry_s, ...p }) => {
     const base = defaults.find(d => d.name === p.name);
     if (!base) throw new Error(`未知来源: ${p.name}`);
     if (seen.has(p.name)) throw new Error(`重复来源: ${p.name}`);
     seen.add(p.name);
-    const quota = p.quota?.type && p.quota.type !== base.quota.type
-      ? p.quota : { ...base.quota, ...p.quota };
-    return { ...base, ...p, quota, quota_retry_s: p.quota_retry_s ?? p.quota?.quota_retry_s ?? base.quota_retry_s };
+    const { quota_retry_s: legacyRetryS, ...override } = given ?? {};
+    const quota = override.type && override.type !== base.quota.type
+      ? override : { ...base.quota, ...override };
+    return { ...base, ...p, quota, quota_retry_s: quota_retry_s ?? legacyRetryS ?? base.quota_retry_s };
   }) ?? defaults;
-  return configSchema.parse({ ...raw, providers });
+  const { store_size: _storeSize, ...cache } = raw.cache ?? {};
+  return configSchema.parse({ ...raw, providers, ...(raw.cache && { cache }) });
+}
+
+/** 把 zod 报错整理成"位置: 问题"，拼错的字段名一眼可见（原始 JSON 在宿主日志里很难读） */
+export function describeConfigError(err: unknown): string {
+  if (!(err instanceof z.ZodError)) return String(err instanceof Error ? err.message : err);
+  return err.issues.map(issue => {
+    const where = issue.path.join('.') || '(顶层)';
+    return `${where}: ${issue.code === 'unrecognized_keys' ? `未知字段 ${issue.keys.join(', ')}` : issue.message}`;
+  }).join('；');
 }
 
 function die(message: string): never {
@@ -108,6 +123,6 @@ export function loadConfig(): AppConfig {
   try {
     return parseConfig(raw);
   } catch (err) {
-    die(String(err instanceof Error ? err.message : err));
+    die(describeConfigError(err));
   }
 }
