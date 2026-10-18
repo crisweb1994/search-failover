@@ -1,7 +1,7 @@
 {
   "name": "search-failover",
   "version": "0.4.0",
-  "description": "搜索故障转移网关 MCP：聚合博查/Tavily/Brave/Exa/DuckDuckGo 默认链，可选启用智谱/百度千帆/Serper (Search failover gateway MCP: default chain of Bocha/Tavily/Brave/Exa/DuckDuckGo with opt-in Zhipu/Qianfan/Serper and automatic failover)",
+  "description": "Web search MCP server with automatic failover across Bocha/Tavily/Brave/Exa/SearXNG/DuckDuckGo (opt-in Zhipu/Qianfan/Serper); stdio and Streamable HTTP, zero runtime dependencies. 搜索故障转移 MCP：多家搜索 API 自动兜底，支持 stdio 与 Streamable HTTP。",
   "type": "module",
   "license": "MIT",
   "author": "crisweb1994",
@@ -20,10 +20,12 @@
     "web-search",
     "failover",
     "search-engine",
+    "streamable-http",
     "tavily",
     "brave",
     "bocha",
     "exa",
+    "searxng",
     "duckduckgo",
     "zhipu",
     "qianfan",
@@ -33,10 +35,8 @@
   "bin": {
     "search-failover": "dist/index.js"
   },
-  "main": "dist/index.js",
   "files": [
     "dist",
-    "docs",
     "README.en.md",
     "CHANGELOG.md"
   ],
@@ -44,7 +44,7 @@
     "node": ">=20.10"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/build.mjs",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -53,16 +53,16 @@
     "plugin:check": "node scripts/plugin-sync.mjs --check",
     "prepublishOnly": "npm run typecheck && npm test && npm run plugin:check && npm run build"
   },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "htmlparser2": "^10.1.0",
-    "zod": "^3.25.0"
-  },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@types/node": "^20.14.0",
+    "esbuild": "^0.28.2",
+    "htmlparser2": "^10.1.0",
     "msw": "^2.6.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
-    "vitest": "^3.0.0"
+    "undici": "^6.29.1",
+    "vitest": "^3.0.0",
+    "zod": "^3.25.76"
   }
 }
