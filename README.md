@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/search-failover)](https://www.npmjs.com/package/search-failover) [![CI](https://github.com/crisweb1994/search-failover/actions/workflows/ci.yml/badge.svg)](https://github.com/crisweb1994/search-failover/actions/workflows/ci.yml) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![MCP](https://img.shields.io/badge/MCP-stdio%20%7C%20HTTP-6E43B8) ![license](https://img.shields.io/badge/license-MIT-blue)
 
-**一个 `web_search` 工具，背后 9 家搜索来源。** 哪家额度用完、被限流、超时或没有结果，自动换下一家。本地宿主走 stdio，远程平台走 Streamable HTTP；发布包是单个文件，没有运行时依赖。
+**一个 `web_search` 工具，背后 10 家搜索来源。** 哪家额度用完、被限流、超时或没有结果，自动换下一家。本地宿主走 stdio，远程平台走 Streamable HTTP；发布包是单个文件，没有运行时依赖。
 
 [快速开始](#快速开始) · [搜索源](#搜索源) · [工作方式](#工作方式) · [接入宿主](#接入宿主) · [配置](#配置) · [网络与代理](#网络与代理) · [工具与返回值](#工具与返回值) · [局限](#状态与局限)
 
@@ -54,7 +54,7 @@ search-failover 把多家搜索 API 放在同一个 `web_search` 工具后面，
 - **返回值是写给模型看的。** 带完整的决策链；"没搜到"和"没搜成"用 MCP 的 `isError` 区分；带 `include_domains` 时先试能过滤的来源，最终给出结果的来源做不到时在 `note` 里说明；工具描述只列出当前真正可用的来源。
 - **一份配置，所有宿主共用。** 凭据和来源顺序可以全部用环境变量配置，也可以写进 `~/.config/search-failover/config.json`，每个宿主的配置只剩一行 `npx -y search-failover`。宿主没展开的 `${...}` 模板不会被当成 key。
 - **本地和远程都能接。** stdio 给 Claude Code、Cursor、Codex 这类本地宿主；`--http` 启动 Streamable HTTP 服务，给只支持远程 MCP 的平台用，多个客户端共享同一份额度计数、冷却和缓存。
-- **不乱花钱。** 智谱、千帆、Serper 这类付费或一次性额度的来源，只配 key 不会进链，必须显式列出。多数来源带本地请求预算和限速，并发请求下也不会超发。
+- **不乱花钱。** 智谱、DeepSeek、千帆、Serper 这类付费或一次性额度的来源，只配 key 不会进链，必须显式列出。多数来源带本地请求预算和限速，并发请求下也不会超发。
 - **能走代理。** 读取 `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`（Node 自带的 fetch 不读这些变量）。
 - **小，而且可审计。** 发布包是 esbuild 打出的单个文件，`npx` 冷启动只下载一个包；没有数据库、没有后台任务，状态只在进程内存里；日志全部走 stderr。
 
@@ -93,6 +93,7 @@ Codex、Cursor、ZCode、VS Code、OpenCode、Claude Desktop 等见[接入宿主
 | --- | --- | --- | --- | --- |
 | Bocha 博查 | `BOCHA_API_KEY` | 是 | 每月 1000 次，1 日重置 | 不支持 |
 | Zhipu 智谱 | `ZHIPU_API_KEY` | 否（需显式列出） | 不限 | 单个域名 |
+| DeepSeek | `DEEPSEEK_API_KEY` | 否（需显式列出） | 不限 | 多个域名 |
 | Tavily | `TAVILY_API_KEY` | 是 | 每月 1000 次，2 日重置 | 多个域名 |
 | Baidu Qianfan 百度千帆 | `QIANFAN_API_KEY` | 否（需显式列出） | 每月 1500 次，1 日重置 | 多个域名 |
 | Brave Search | `BRAVE_API_KEY` | 是 | 每月 1000 次，15 日重置 | 单个域名 |
@@ -103,8 +104,9 @@ Codex、Cursor、ZCode、VS Code、OpenCode、Claude Desktop 等见[接入宿主
 <!-- /generated:providers -->
 
 - 表格按默认优先级排列，由 `npm run plugin:sync` 从来源注册表生成。默认链只包含"默认进链"为"是"、且配好了凭据的来源。
-- 智谱、千帆、Serper 是付费或一次性额度，**只配 key 不会进链**，要在 `SEARCH_FAILOVER_PROVIDERS` 或配置文件的 `providers` 里显式列出（见[配置](#配置)）。
-- "本地预算"是网关自己的保守计数，用来少发请求，不是账户余额，也不保证落在免费额度内。价格依据（2026-10-04）：[Brave](https://api-dashboard.search.brave.com/documentation/pricing) 的 1000 是月度 credits 折算出的参考值；[Exa](https://exa.ai/pricing) 按月重置 credits，800 只是保留的本地上限；智谱按次计费（GLM Coding Plan 含次数）；千帆每月 1500 次免费，超额按量；Serper 是一次性 credits，分档计费尚待实测。
+- 智谱、DeepSeek、千帆、Serper 是付费或一次性额度，**只配 key 不会进链**，要在 `SEARCH_FAILOVER_PROVIDERS` 或配置文件的 `providers` 里显式列出（见[配置](#配置)）。
+- "本地预算"是网关自己的保守计数，用来少发请求，不是账户余额，也不保证落在免费额度内。价格依据（2026-10-04）：[Brave](https://api-dashboard.search.brave.com/documentation/pricing) 的 1000 是月度 credits 折算出的参考值；[Exa](https://exa.ai/pricing) 按月重置 credits，800 只是保留的本地上限；智谱按次计费（GLM Coding Plan 含次数）；千帆每月 1500 次免费，超额按量；Serper 是一次性 credits，分档计费尚待实测。[DeepSeek](https://api-docs.deepseek.com/guides/search)（2026-10-18）按成功请求计费，每千次 0.75 美元，空结果和失败不计费；官方公布的免费期（至 2026-11-01）只针对 DeepSeek 模型在 Harness、Claude Code、Codex 里发起的服务端搜索，网关直接调用接口，按次计费。
+- DeepSeek 的 `include_domains` 和 `freshness` 只能写进查询词（`site:a OR site:b`、`after:YYYY-MM-DD`），和查询词合计不超过 128 个字符：超出时截断查询词，并在 `note` 里说明；运算符挤得查询词不到 32 个字符时（大约 5 个以上的域名），这一家记为 `request_error`，换下一家。另外 DeepSeek 几乎总有结果：实测一条不可能命中的查询也返回了 8 条低相关结果，排在它后面的来源很少因为"没搜到"被用上。
 - SearXNG 需要自建实例，并在实例的 `settings.yml` 里把 `json` 加进 `search.formats`，否则接口返回 403。
 - DuckDuckGo 靠抓取 HTML 页面，免 key 但受反爬限制；国内网络无法直连。
 
@@ -129,7 +131,7 @@ web_search(query)
 | 类别 | 典型信号 | 处理 |
 | --- | --- | --- |
 | `rate_limited` | 429；DuckDuckGo 的异常页 | 按上游给的等待时间冷却，没有就 60 秒，上限 1 小时（DuckDuckGo 是 6 小时） |
-| `quota_exhausted` | 博查 403；Exa、Serper 402；Tavily 432/433；Brave 429 + `QUOTA_LIMITED`；智谱 429 + 1113 | 屏蔽到上游给的恢复时间；没有就等 `quota_retry_s`（默认 6 小时） |
+| `quota_exhausted` | 博查 403；Exa、Serper、DeepSeek 402；Tavily 432/433；Brave 429 + `QUOTA_LIMITED`；智谱 429 + 1113 | 屏蔽到上游给的恢复时间；没有就等 `quota_retry_s`（默认 6 小时） |
 | `auth_failure` | 401；Brave 422 + `SUBSCRIPTION_TOKEN_INVALID` | 摘除该来源，直到重启 |
 | `timeout` / `network` | 请求超时、连接失败（`detail` 带上 ENOTFOUND、ECONNREFUSED、证书错误等真实原因） | 冷却 30 秒起，连续失败翻倍，上限 1 小时 |
 | `server_error` | 5xx；响应无法解析；SearXNG 所有引擎都失败 | 冷却 60 秒起，连续失败翻倍，上限 1 小时 |
@@ -170,7 +172,7 @@ web_search(query)
 > - **凭据放哪都行，推荐用户级配置文件。** 环境变量优先，其次是 `~/.config/search-failover/config.json` 的 `credentials`。这样宿主配置里不用再写 key。
 > - **从程序坞 / 开始菜单启动的 GUI 宿主（如 Claude Desktop）读不到 shell 里 `export` 的变量**，而且常常找不到用 nvm、Volta、fnm 装的 `npx`。遇到 `spawn npx ENOENT` 时，把 `command` 换成 `npx` 的绝对路径（`which npx` 查看），凭据写进配置文件。
 > - **Windows** 上如果宿主报找不到 `npx`，把 `"command": "npx"` 改成 `"command": "cmd"`，`args` 前面加上 `"/c", "npx"`。
-> - **只配 key 不等于进链。** 智谱、千帆、Serper 要在 `SEARCH_FAILOVER_PROVIDERS` 或配置文件的 `providers` 里列出。
+> - **只配 key 不等于进链。** 智谱、DeepSeek、千帆、Serper 要在 `SEARCH_FAILOVER_PROVIDERS` 或配置文件的 `providers` 里列出。
 > - 宿主没有展开的 `${...}` 模板会被当作未设置，并在 `web_search_status` 的 `config.warnings` 里提示。
 
 <details>
@@ -385,11 +387,11 @@ SEARCH_FAILOVER_HTTP_TOKEN=$(openssl rand -hex 24) npx -y search-failover --http
 
 | 字段 | 说明 | 默认 |
 | --- | --- | --- |
-| `providers[].name` | 来源名：`bocha` `zhipu` `tavily` `qianfan` `brave` `serper` `exa` `searxng` `duckduckgo` | 必填 |
+| `providers[].name` | 来源名：`bocha` `zhipu` `deepseek` `tavily` `qianfan` `brave` `serper` `exa` `searxng` `duckduckgo` | 必填 |
 | `providers[].enabled` | 设为 `false` 暂时停用 | `true` |
 | `providers[].quota` | 本地请求预算：`type`（`monthly` / `one_time` / `unbounded`）、`limit`、`reset_day`（1–31） | 随来源，见[搜索源](#搜索源) |
 | `providers[].quota_retry_s` | 上游配额错误没给恢复时间时的等待秒数，`0` 表示不施加这类冷却 | `21600` |
-| `providers[].local_qps` / `min_interval_ms` | 本地限速 | Brave、千帆、Serper 默认 1 QPS，DuckDuckGo 间隔 2 秒 |
+| `providers[].local_qps` / `min_interval_ms` | 本地限速 | Brave、千帆、Serper 默认 1 QPS，DeepSeek 5 QPS，DuckDuckGo 间隔 2 秒 |
 | `providers[].cooldown_max_s` | 覆盖该来源的冷却上限 | 全局值；DuckDuckGo 为 21600 |
 | `credentials.<环境变量名>` | 凭据（key 或 SearXNG 实例地址） | – |
 | `defaults.timeout_ms` | 单个来源的请求超时 | `10000` |
@@ -404,7 +406,7 @@ SEARCH_FAILOVER_HTTP_TOKEN=$(openssl rand -hex 24) npx -y search-failover --http
 
 - 设置 `HTTPS_PROXY`（或 `HTTP_PROXY`）后，所有出站请求走代理；`NO_PROXY` 按惯例列出直连的地址。没设 `NO_PROXY` 时，`localhost`、`127.0.0.1`、`::1` 默认直连，方便连本机的 SearXNG。生效的代理地址会显示在 `web_search_status` 里（账号密码已隐去）。
 - 这件事需要网关自己处理：Node 自带的 fetch 不读这些变量，Node 22 实测设了 `HTTPS_PROXY` 依然直连。
-- **国内网络：** DuckDuckGo 无法直连，所以"零配置"在国内需要代理才能工作；Tavily、Brave、Exa 也常需要代理。不想用代理的话，博查、智谱、千帆是国内服务，自建的 SearXNG 可以作为免 key 的兜底。
+- **国内网络：** DuckDuckGo 无法直连，所以"零配置"在国内需要代理才能工作；Tavily、Brave、Exa 也常需要代理。不想用代理的话，博查、智谱、DeepSeek、千帆是国内服务，自建的 SearXNG 可以作为免 key 的兜底。
 
 ## 工具与返回值
 
@@ -412,7 +414,7 @@ SEARCH_FAILOVER_HTTP_TOKEN=$(openssl rand -hex 24) npx -y search-failover --http
 
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
-| `query` | 必填 | 搜索词。网关截断到 400 字符；智谱、千帆还有更严的来源级截断，会在 `note` 里说明 |
+| `query` | 必填 | 搜索词。网关截断到 400 字符；智谱、DeepSeek、千帆还有更严的来源级截断，会在 `note` 里说明 |
 | `max_results` | 8 | 1–20；超出范围或传成字符串会自动调整 |
 | `freshness` | – | `day` / `week` / `month` / `year` |
 | `include_domains` | – | 只返回这些主机名的结果；`https://docs.rs/x`、`site:docs.rs`、`*.docs.rs` 这类写法会自动归一成 `docs.rs` |

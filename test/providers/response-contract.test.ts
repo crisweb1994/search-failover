@@ -11,6 +11,7 @@ const samples = [
   ['brave', { type: 'search', web: { results: [] } }, { web: { results: [{ title: {}, url: 'https://x.test' }] } }],
   ['exa', { results: [] }, { results: [{ title: {}, url: 'https://x.test' }] }],
   ['zhipu', { search_result: [] }, { search_result: [{ title: {}, link: 'https://x.test' }] }],
+  ['deepseek', { results: [] }, { results: [{ title: {}, url: 'https://x.test' }] }],
   ['serper', { organic: [] }, { organic: [{ title: {}, link: 'https://x.test' }] }],
   ['qianfan', { references: [] }, { references: [{ type: 'web', title: {}, url: 'https://x.test' }] }],
   ['searxng', { results: [] }, { results: [{ title: 'x', url: {} }] }],
