@@ -4,7 +4,7 @@
 
 [![npm](https://img.shields.io/npm/v/search-failover)](https://www.npmjs.com/package/search-failover) [![CI](https://github.com/crisweb1994/search-failover/actions/workflows/ci.yml/badge.svg)](https://github.com/crisweb1994/search-failover/actions/workflows/ci.yml) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![MCP](https://img.shields.io/badge/MCP-stdio%20%7C%20HTTP-6E43B8) ![license](https://img.shields.io/badge/license-MIT-blue)
 
-**One `web_search` tool backed by 9 search sources.** When one runs out of quota, gets rate limited, times out or returns nothing, the next one takes over. Local hosts use stdio, remote platforms use Streamable HTTP, and the published package is a single file with no runtime dependencies.
+**One `web_search` tool backed by 10 search sources.** When one runs out of quota, gets rate limited, times out or returns nothing, the next one takes over. Local hosts use stdio, remote platforms use Streamable HTTP, and the published package is a single file with no runtime dependencies.
 
 [Quick start](#quick-start) · [Providers](#providers) · [How it works](#how-it-works) · [Hosts](#hosts) · [Configuration](#configuration) · [Network and proxy](#network-and-proxy) · [Tools](#tools-and-results) · [Limitations](#status-and-limitations)
 
@@ -54,7 +54,7 @@ Read the same chain when results are empty. Only a chain made entirely of `no_re
 - **Results written for the model.** The full decision chain is included; "found nothing" and "did not search" are distinguished with MCP `isError`; with `include_domains`, providers that can apply the filter are tried first, and `note` says so when the provider that answered could not; the tool description lists only providers that are actually available.
 - **One configuration for every host.** Credentials and provider order can be set entirely through environment variables or in `~/.config/search-failover/config.json`, so each host only needs `npx -y search-failover`. `${...}` templates a host failed to expand are never mistaken for keys.
 - **Local and remote.** stdio for local hosts such as Claude Code, Cursor and Codex; `--http` starts a Streamable HTTP server for platforms that only support remote MCP, with quota counters, cooldowns and cache shared by every client.
-- **No surprise bills.** Paid or one-off-credit providers (Zhipu, Qianfan, Serper) never join the chain just because a key is set; they must be listed explicitly. Most providers carry local request budgets and rate limits that hold under concurrency.
+- **No surprise bills.** Paid or one-off-credit providers (Zhipu, DeepSeek, Qianfan, Serper) never join the chain just because a key is set; they must be listed explicitly. Most providers carry local request budgets and rate limits that hold under concurrency.
 - **Proxy support.** Honors `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` (Node's built-in fetch ignores them).
 - **Small and auditable.** The package is a single esbuild bundle, so a cold `npx` start downloads one package; no database, no background jobs, state lives in process memory, and all logs go to stderr.
 
@@ -93,6 +93,7 @@ See [Hosts](#hosts) for Codex, Cursor, ZCode, VS Code, OpenCode, Claude Desktop 
 | --- | --- | --- | --- | --- |
 | Bocha 博查 | `BOCHA_API_KEY` | yes | 1000/month, resets on day 1 | not supported |
 | Zhipu 智谱 | `ZHIPU_API_KEY` | no (opt-in, list it explicitly) | unlimited | one domain |
+| DeepSeek | `DEEPSEEK_API_KEY` | no (opt-in, list it explicitly) | unlimited | multiple domains |
 | Tavily | `TAVILY_API_KEY` | yes | 1000/month, resets on day 2 | multiple domains |
 | Baidu Qianfan 百度千帆 | `QIANFAN_API_KEY` | no (opt-in, list it explicitly) | 1500/month, resets on day 1 | multiple domains |
 | Brave Search | `BRAVE_API_KEY` | yes | 1000/month, resets on day 15 | one domain |
@@ -103,8 +104,9 @@ See [Hosts](#hosts) for Codex, Cursor, ZCode, VS Code, OpenCode, Claude Desktop 
 <!-- /generated:providers -->
 
 - The table is in default priority order and is generated from the provider registry by `npm run plugin:sync`. The default chain contains only providers marked "yes" whose credentials are configured.
-- Zhipu, Qianfan and Serper are paid or one-off credits: **a key alone does not add them to the chain**; list them in `SEARCH_FAILOVER_PROVIDERS` or in the config file's `providers` (see [Configuration](#configuration)).
-- "Local budget" is the gateway's own conservative counter to avoid unnecessary requests. It is not your account balance and does not guarantee staying within a free tier. Pricing references (2026-10-04): [Brave](https://api-dashboard.search.brave.com/documentation/pricing)'s 1,000 is derived from monthly credits; [Exa](https://exa.ai/pricing) resets credits monthly and 800 is only a local cap; Zhipu charges per call (included in the GLM Coding Plan); Qianfan has 1,500 free calls per month, then pay as you go; Serper uses one-off credits, tiered pricing not yet verified.
+- Zhipu, DeepSeek, Qianfan and Serper are paid or one-off credits: **a key alone does not add them to the chain**; list them in `SEARCH_FAILOVER_PROVIDERS` or in the config file's `providers` (see [Configuration](#configuration)).
+- "Local budget" is the gateway's own conservative counter to avoid unnecessary requests. It is not your account balance and does not guarantee staying within a free tier. Pricing references (2026-10-04): [Brave](https://api-dashboard.search.brave.com/documentation/pricing)'s 1,000 is derived from monthly credits; [Exa](https://exa.ai/pricing) resets credits monthly and 800 is only a local cap; Zhipu charges per call (included in the GLM Coding Plan); Qianfan has 1,500 free calls per month, then pay as you go; Serper uses one-off credits, tiered pricing not yet verified. [DeepSeek](https://api-docs.deepseek.com/guides/search) (2026-10-18) bills each successful request at $0.75 per 1,000; empty results and failures are free. Its announced free period (until 2026-11-01) covers only server-side searches made by DeepSeek models in Harness, Claude Code and Codex; the gateway calls the API directly and is billed per request.
+- DeepSeek takes `include_domains` and `freshness` only as query operators (`site:a OR site:b`, `after:YYYY-MM-DD`), and the whole query is capped at 128 characters: the search terms are truncated to fit, with a `note`; when the operators would leave fewer than 32 characters for the terms (roughly five or more domains), DeepSeek records `request_error` and the next provider is tried. DeepSeek also almost always returns something: a probe query that cannot match anything still got 8 low-relevance results, so providers after it rarely run because of "no results".
 - SearXNG needs a self-hosted instance with `json` added to `search.formats` in its `settings.yml`; otherwise the API returns 403.
 - DuckDuckGo works by scraping its HTML page: no key, but subject to anti-bot measures; unreachable from mainland China without a proxy.
 
@@ -129,7 +131,7 @@ How each error class is handled:
 | Class | Typical signal | Handling |
 | --- | --- | --- |
 | `rate_limited` | 429; DuckDuckGo anomaly page | Cool down for the upstream wait time, else 60 s, capped at 1 h (6 h for DuckDuckGo) |
-| `quota_exhausted` | Bocha 403; Exa, Serper 402; Tavily 432/433; Brave 429 + `QUOTA_LIMITED`; Zhipu 429 + 1113 | Block until the upstream recovery time; otherwise wait `quota_retry_s` (default 6 h) |
+| `quota_exhausted` | Bocha 403; Exa, Serper, DeepSeek 402; Tavily 432/433; Brave 429 + `QUOTA_LIMITED`; Zhipu 429 + 1113 | Block until the upstream recovery time; otherwise wait `quota_retry_s` (default 6 h) |
 | `auth_failure` | 401; Brave 422 + `SUBSCRIPTION_TOKEN_INVALID` | Remove the provider until restart |
 | `timeout` / `network` | Timeout, connection failure (`detail` carries the real cause: ENOTFOUND, ECONNREFUSED, certificate errors…) | Cool down from 30 s, doubling on consecutive failures, capped at 1 h |
 | `server_error` | 5xx; unparsable response; every SearXNG engine failed | Cool down from 60 s, doubling, capped at 1 h |
@@ -170,7 +172,7 @@ The repository is packaged per [Agent Plugins 1.0](https://agent-plugins.org) (s
 > - **Put credentials wherever is convenient; the user-level config file is recommended.** Environment variables win, then `credentials` in `~/.config/search-failover/config.json`, so host configs need no keys.
 > - **GUI hosts launched from the Dock or Start menu (e.g. Claude Desktop) do not see variables exported in your shell**, and often cannot find an `npx` installed through nvm, Volta or fnm. On `spawn npx ENOENT`, use the absolute path of `npx` (`which npx`) as `command` and keep credentials in the config file.
 > - **Windows:** if the host cannot find `npx`, use `"command": "cmd"` and prepend `"/c", "npx"` to `args`.
-> - **A key alone does not enable a provider.** Zhipu, Qianfan and Serper must be listed in `SEARCH_FAILOVER_PROVIDERS` or in the config file's `providers`.
+> - **A key alone does not enable a provider.** Zhipu, DeepSeek, Qianfan and Serper must be listed in `SEARCH_FAILOVER_PROVIDERS` or in the config file's `providers`.
 > - `${...}` templates a host did not expand are treated as unset and reported in `config.warnings` of `web_search_status`.
 
 <details>
@@ -385,11 +387,11 @@ Fields:
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `providers[].name` | `bocha` `zhipu` `tavily` `qianfan` `brave` `serper` `exa` `searxng` `duckduckgo` | required |
+| `providers[].name` | `bocha` `zhipu` `deepseek` `tavily` `qianfan` `brave` `serper` `exa` `searxng` `duckduckgo` | required |
 | `providers[].enabled` | `false` disables it temporarily | `true` |
 | `providers[].quota` | Local request budget: `type` (`monthly` / `one_time` / `unbounded`), `limit`, `reset_day` (1–31) | per provider, see [Providers](#providers) |
 | `providers[].quota_retry_s` | Wait in seconds after a quota error without an upstream recovery time; `0` disables that cooldown | `21600` |
-| `providers[].local_qps` / `min_interval_ms` | Local rate limit | 1 QPS for Brave, Qianfan, Serper; 2 s interval for DuckDuckGo |
+| `providers[].local_qps` / `min_interval_ms` | Local rate limit | 1 QPS for Brave, Qianfan, Serper; 5 QPS for DeepSeek; 2 s interval for DuckDuckGo |
 | `providers[].cooldown_max_s` | Per-provider cooldown cap | global value; 21600 for DuckDuckGo |
 | `credentials.<ENV_NAME>` | Credential (key, or SearXNG instance URL) | – |
 | `defaults.timeout_ms` | Per-provider request timeout | `10000` |
@@ -404,7 +406,7 @@ Fields:
 
 - With `HTTPS_PROXY` (or `HTTP_PROXY`) set, all outbound requests go through the proxy; `NO_PROXY` lists direct destinations as usual. When `NO_PROXY` is unset, `localhost`, `127.0.0.1` and `::1` stay direct so a local SearXNG keeps working. The proxy in use is shown by `web_search_status` (credentials redacted).
 - The gateway has to do this itself: Node's built-in fetch ignores these variables (still a direct connection on Node 22 with `HTTPS_PROXY` set).
-- **Mainland China:** DuckDuckGo is unreachable, so the zero-config setup needs a proxy there; Tavily, Brave and Exa often do too. Without a proxy, Bocha, Zhipu and Qianfan are domestic services, and a self-hosted SearXNG can serve as the keyless fallback.
+- **Mainland China:** DuckDuckGo is unreachable, so the zero-config setup needs a proxy there; Tavily, Brave and Exa often do too. Without a proxy, Bocha, Zhipu, DeepSeek and Qianfan are domestic services, and a self-hosted SearXNG can serve as the keyless fallback.
 
 ## Tools and results
 
@@ -412,7 +414,7 @@ Fields:
 
 | Parameter | Default | Description |
 | --- | --- | --- |
-| `query` | required | Search query. Truncated to 400 characters; Zhipu and Qianfan truncate further and say so in `note` |
+| `query` | required | Search query. Truncated to 400 characters; Zhipu, DeepSeek and Qianfan truncate further and say so in `note` |
 | `max_results` | 8 | 1–20; out-of-range values and numeric strings are adjusted automatically |
 | `freshness` | – | `day` / `week` / `month` / `year` |
 | `include_domains` | – | Only return results from these hostnames; forms like `https://docs.rs/x`, `site:docs.rs` and `*.docs.rs` are normalized to `docs.rs` |

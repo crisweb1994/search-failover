@@ -41,6 +41,13 @@ const PROBES: Record<string, { env: string; badKey?: boolean; request: (credenti
       init: json(key, 'bearer', { search_query: query(v), search_engine: 'search_std', count: v === 'overflow' ? 999 : 8, search_intent: false, content_size: 'medium' }),
     }),
   },
+  deepseek: {
+    env: 'DEEPSEEK_API_KEY',
+    request: (key, v) => ({
+      url: 'https://api.deepseek.com/v1/tools/search',
+      init: json(key, 'bearer', { query: query(v), count: v === 'overflow' ? 999 : 8 }),
+    }),
+  },
   tavily: {
     env: 'TAVILY_API_KEY',
     request: (key, v) => ({

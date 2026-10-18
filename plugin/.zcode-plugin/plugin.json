@@ -1,7 +1,7 @@
 {
   "name": "search-failover",
   "version": "0.4.0",
-  "description": "网页搜索，多家搜索 API 自动兜底：博查/Tavily/Brave/Exa/SearXNG/DuckDuckGo，可选智谱/百度千帆/Serper；零 key 可用（DuckDuckGo 兜底）",
+  "description": "网页搜索，多家搜索 API 自动兜底：博查/Tavily/Brave/Exa/SearXNG/DuckDuckGo，可选智谱/DeepSeek/百度千帆/Serper；零 key 可用（DuckDuckGo 兜底）",
   "author": {
     "name": "crisweb1994",
     "url": "https://github.com/crisweb1994"
@@ -17,8 +17,8 @@
     "search-engine"
   ],
   "description_i18n": {
-    "en": "Web search with automatic failover across Bocha/Tavily/Brave/Exa/SearXNG/DuckDuckGo, opt-in Zhipu/Qianfan/Serper. Works with zero API keys (DuckDuckGo fallback).",
-    "zh-CN": "网页搜索，多家搜索 API 自动兜底：博查/Tavily/Brave/Exa/SearXNG/DuckDuckGo，可选智谱/百度千帆/Serper；零 key 可用（DuckDuckGo 兜底）"
+    "en": "Web search with automatic failover across Bocha/Tavily/Brave/Exa/SearXNG/DuckDuckGo, opt-in Zhipu/DeepSeek/Qianfan/Serper. Works with zero API keys (DuckDuckGo fallback).",
+    "zh-CN": "网页搜索，多家搜索 API 自动兜底：博查/Tavily/Brave/Exa/SearXNG/DuckDuckGo，可选智谱/DeepSeek/百度千帆/Serper；零 key 可用（DuckDuckGo 兜底）"
   },
   "mcpServers": "./.mcp.json",
   "userConfig": {
@@ -30,7 +30,7 @@
     },
     "providers": {
       "title": "来源顺序",
-      "description": "按优先级排列的来源名，逗号分隔（可选），如 bocha,tavily,duckduckgo。可选源（zhipu/qianfan/serper）列出即启用。留空使用默认链。",
+      "description": "按优先级排列的来源名，逗号分隔（可选），如 bocha,tavily,duckduckgo。可选源（zhipu/deepseek/qianfan/serper）列出即启用。留空使用默认链。",
       "type": "string",
       "default": ""
     }

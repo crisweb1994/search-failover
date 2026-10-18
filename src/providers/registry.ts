@@ -1,6 +1,7 @@
 import type { ProviderDefinition } from './types.js';
 import { definition as bocha } from './bocha.js';
 import { definition as zhipu } from './zhipu.js';
+import { definition as deepseek } from './deepseek.js';
 import { definition as tavily } from './tavily.js';
 import { definition as qianfan } from './qianfan.js';
 import { definition as brave } from './brave.js';
@@ -15,7 +16,7 @@ import { definition as duckduckgo } from './ddg.js';
  * 接入新源：新建 adapter 模块导出 definition，在这里加一行，再补契约测试。
  */
 export const PROVIDERS: readonly ProviderDefinition[] = [
-  bocha, zhipu, tavily, qianfan, brave, serper, exa, searxng, duckduckgo,
+  bocha, zhipu, deepseek, tavily, qianfan, brave, serper, exa, searxng, duckduckgo,
 ];
 
 export const REGISTRY: Readonly<Record<string, ProviderDefinition>> = Object.fromEntries(

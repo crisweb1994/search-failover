@@ -147,7 +147,7 @@ describe('默认配置（注册表派生）', () => {
 
   it('默认链 = defaultEnabled 的来源，按注册表顺序', () => {
     expect(parseConfig({}, {}).providers.map(x => x.name)).toEqual(['bocha', 'tavily', 'brave', 'exa', 'searxng', 'duckduckgo']);
-    expect(PROVIDERS.filter(d => !d.defaultEnabled).map(d => d.adapter.name)).toEqual(['zhipu', 'qianfan', 'serper']);
+    expect(PROVIDERS.filter(d => !d.defaultEnabled).map(d => d.adapter.name)).toEqual(['zhipu', 'deepseek', 'qianfan', 'serper']);
   });
 
   it('默认值随注册表带入：限速、冷却上限、本地预算', () => {

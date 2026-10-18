@@ -46,5 +46,5 @@ No arguments. Shows each provider's state (`active`, `blocked(...)`, `unconfigur
 ## Helping the user configure
 
 - Credentials come from the host's environment variables (the `credential_env` in status), or from the `credentials` section of `~/.config/search-failover/config.json`, which every host shares.
-- `SEARCH_FAILOVER_PROVIDERS` (comma-separated, in priority order) selects the chain. Zhipu, Qianfan and Serper are paid or one-off credit sources and only run when listed there or in the config file.
+- `SEARCH_FAILOVER_PROVIDERS` (comma-separated, in priority order) selects the chain. Zhipu, DeepSeek, Qianfan and Serper are paid or one-off credit sources and only run when listed there or in the config file.
 - With no keys at all, DuckDuckGo is used. It is unreachable from mainland China without a proxy (`HTTPS_PROXY`); a self-hosted SearXNG (`SEARXNG_URL`) is a free alternative.
