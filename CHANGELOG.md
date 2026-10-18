@@ -2,6 +2,24 @@
 
 本文件记录项目的所有显著变更，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。从 0.5.0 起，版本条目由 [release-please](https://github.com/googleapis/release-please) 根据 Conventional Commits 自动生成（英文）；0.5.0 的升级说明和更早的版本是手写的。
 
+## [0.5.0](https://github.com/crisweb1994/search-failover/compare/v0.4.0...v0.5.0) (2026-10-18)
+
+
+### Features
+
+* add DeepSeek search provider ([954305f](https://github.com/crisweb1994/search-failover/commit/954305f3f074d6999d36281fedee3ff3a14e7ace))
+* add DeepSeek search provider ([39030df](https://github.com/crisweb1994/search-failover/commit/39030df4067503921d99ca179f01bfb96125258f))
+* add issue permissions for release-please in workflow ([c10cc40](https://github.com/crisweb1994/search-failover/commit/c10cc40a5471d44b59aaa465e9c23b41ff4966a3))
+* add issue permissions for release-please in workflow ([66433b2](https://github.com/crisweb1994/search-failover/commit/66433b2244d3a17746e24e6d251ddde0858f4aec))
+* multi-host config, HTTP transport, proxy and SearXNG ([535107d](https://github.com/crisweb1994/search-failover/commit/535107dc84d36ef6e04dcf496c9fb2b9e4a8ebf5))
+
+
+### Bug Fixes
+
+* reject unknown config fields at startup instead of ignoring them ([dd68658](https://github.com/crisweb1994/search-failover/commit/dd686583990a09af98ec45b07a6a2e5b65eb0f8a))
+* report until_restart for auth-blocked providers and tidy up ([bcb3dc0](https://github.com/crisweb1994/search-failover/commit/bcb3dc0c779652cd43e4a343332f8bbb57963ebf))
+* stop returning snippet when content is present ([9d30102](https://github.com/crisweb1994/search-failover/commit/9d30102658133a938e0a7c258a3ecee2795448a3))
+
 ## 0.5.0 升级说明
 
 以下是 0.5.0 改动的详细说明，自动生成的版本条目见上方。

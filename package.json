@@ -1,6 +1,6 @@
 {
   "name": "search-failover",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Web search MCP server with automatic failover across Bocha/Tavily/Brave/Exa/SearXNG/DuckDuckGo (opt-in Zhipu/DeepSeek/Qianfan/Serper); stdio and Streamable HTTP, zero runtime dependencies. 搜索故障转移 MCP：多家搜索 API 自动兜底，支持 stdio 与 Streamable HTTP。",
   "type": "module",
   "license": "MIT",
