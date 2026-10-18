@@ -1,0 +1,245 @@
+{
+  "meta": {
+    "provider": "deepseek",
+    "date": "2026-10-18T13:29:00.942Z",
+    "note": "live probe 脱敏快照；契约 fixture 以此为准"
+  },
+  "results": [
+    {
+      "variant": "normal",
+      "status": 200,
+      "headers": {},
+      "body": {
+        "results": [
+          {
+            "title": "3. Select whether Probing should be enabled or not",
+            "site_name": null,
+            "site_icon": "https://cdn.deepseek.com/site-icons/ultradns.com",
+            "authority": 3,
+            "rerank_score": 1.1490198373794556,
+            "date": null,
+            "url": "https://ultra-portalstatic.ultradns.com/static/console/docs/Traffic_Management_User_Guide.pdf#4#4",
+            "summary": "- HTTP Test URL\n...\n- Allows you to specify the conditions under which UltraDNS will serve the All Fail Record instead of one of the Primary records.- High \n- Probes in two or more regions are reporti…(4530)",
+            "snippet": "probe target.- Low - Probes in ALL (four) regions are reporting failure of the probe target. ... When using Simple Monitor/Failover, the defined probe sends HTTP(S) GET or POST requests from four loca…(291)",
+            "content": "…(0)"
+          },
+          {
+            "title": "For an IPv6 node (in an IPv6 device-group), if the node is a dual-homed node (that is, it supports IPv4 and IPv6 network interfa...",
+            "site_name": null,
+            "site_icon": "https://cdn.deepseek.com/site-icons/cisco.com",
+            "authority": 3,
+            "rerank_score": 0.8433952927589417,
+            "date": null,
+            "url": "https://salesconnectwem.cisco.com/c/en/us/td/docs/switches/datacenter/nexus7000/sw/itd/config/cisco_nexus7000_intelligent_traffic_director_config_guide_8x.pdf#9#3",
+            "summary": "Cisco Nexus 7000 Series NX-OS Intelligent Traffic Director Configuration Guide 8.x\n...\nWhen the node is down, the traffic bucket associated with the node is reassigned to the first active node found i…(4183)",
+            "snippet": "Cisco Nexus 7000 Series NX-OS Intelligent Traffic Director Configuration Guide 8.x ... to the first active node found in the configured set of nodes. ... - When the node goes down (probe failed), the …(340)",
+            "content": "…(0)"
+          },
+          {
+            "title": "- Automatic failover occurred: Check event log for trigger (probe failure, alert)",
+            "site_name": null,
+            "site_icon": "https://cdn.deepseek.com/site-icons/upc.edu",
+            "authority": 3,
+            "rerank_score": 0.8315202593803406,
+            "date": null,
+            "url": "https://upcommons.upc.edu/server/api/core/bitstreams/beebc97c-9d1b-4490-a5f9-5e728ae1574d/content#9#7",
+            "summary": "Key observations:\n\n1. Mean RTO across all services and scenarios is 43.8 seconds, well within the target of \\(\\leq 60s\\) for automatic failover.  \n\n2. Scenario 4 (external alert) achieves the lowest R…(3755)",
+            "snippet": "1. During the validation period, 47 transient probe failures (lasting \\(< 15\\) s) were observed. ... 3. Probe endpoint selection: Using application-specific health endpoints (e.g., /health/ready) prov…(370)",
+            "content": "…(0)"
+          },
+          {
+            "title": "0070 — Failover to the sovereign engine, and handback on a recorded probe - vibey",
+            "site_name": "the-vibey-project.github.io",
+            "site_icon": "https://cdn.deepseek.com/site-icons/github.io",
+            "authority": 1,
+            "rerank_score": 0.7072820663452148,
+            "date": "2026-09-24T16:00:00+00:00",
+            "url": "https://the-vibey-project.github.io/vibey/main/architecture/decisions/0070-failover-to-the-sovereign-engine-and-handback-on-a-recorded-probe/",
+            "summary": "# 0070 — Failover to the sovereign engine, and handback on a recorded probe¶\n...\nThe operator asked that when a paid model runs out of tokens -- including the driver, the Claude Code session steering …(3890)",
+            "snippet": "The probe is recorded first, and the handback is allowed only when anok probe is recorded after the latest failover -- and, when the failover names the engine that ran out ... A probe that exits non-z…(302)",
+            "content": "…(0)"
+          },
+          {
+            "title": "The interval at which the probe needs to run is specified in the",
+            "site_name": null,
+            "site_icon": "https://cdn.deepseek.com/site-icons/oracle.com",
+            "authority": 4,
+            "rerank_score": 0.6640625,
+            "date": null,
+            "url": "https://docs.oracle.com/cd/E19787-01/820-6930/820-6930.pdf#57#18",
+            "summary": "# The interval at which the probe needs to run is specified in the\n    # property THOROUGH_PROBE_INTERVAL. Therefore, set the probe to sleep\n    # for a duration of THOROUGH_PROBE_INTERVAL.\n    sleep …(2355)",
+            "snippet": "再起動とフェイルオーバーの評価 probefail 変数が0 (成功) 以外である場合、nslookup コマンドがタイムアウトしたか、あるいは、サンプルのサービスの DNS 以外のサーバーから応答が来ていることを示します。…(112)",
+            "content": "…(0)"
+          },
+          {
+            "title": "implies that the dataservice has already # exceeded the maximum retries allowed under PMF. # Therefore, do not attempt to restar...",
+            "site_name": null,
+            "site_icon": "https://cdn.deepseek.com/site-icons/oracle.com",
+            "authority": 4,
+            "rerank_score": 0.6319809556007385,
+            "date": null,
+            "url": "https://docs.oracle.com/cd/E19050-01/sun.cluster31/819-2070/819-2070.pdf#36#28",
+            "summary": "\\mathrm{err - t}[\\$ \\mathrm{SYSLOG\\_TAG}]\\\\(\\) \\{\\mathrm{ARGVO}\\} \\(Failed to restart HA - DNS.\" exit 1 fi\n\n# 示例B-5dns_probe程序 （续）  \n\nelif [ \\(\\) \\text {retries - ge}\\$ RETRY_COUNT]; then  # Still wit…(3254)",
+            "snippet": "示例B-5dns_probe程序 （续） ... If the probefail variable is not set to 0 ... the DNS server is # not responding and the method calls decide_restart_or_failover, # which evaluates whether to restart the data…(246)",
+            "content": "…(0)"
+          },
+          {
+            "title": "Propriété Probe_command",
+            "site_name": "Oracle Help Center",
+            "site_icon": "https://cdn.deepseek.com/site-icons/oracle.com",
+            "authority": 4,
+            "rerank_score": 0.6158009767532349,
+            "date": null,
+            "url": "https://docs.oracle.com/cd/E19050-01/sun.cluster31/819-0184/gds-15/index.html",
+            "summary": "### Propriété Probe_command\n\nLa commande de détection contrôle périodiquement l'état de l'application en question. Il s'agit d'une commande UNIX dont les arguments peuvent être transmis directement à …(1541)",
+            "snippet": "Propriété Probe_command La commande de détection contrôle périodiquement l'état de l'application en question. ... Il peut également avoir la valeur spéciale de 201, ce qui provoque le basculement immé…(294)",
+            "content": "…(0)"
+          },
+          {
+            "title": "- `GET /api/admin/audit-logs` - Retrieve audit logs with filters",
+            "site_name": "GitHub",
+            "site_icon": "https://cdn.deepseek.com/site-icons/githubusercontent.com",
+            "authority": 3,
+            "rerank_score": 0.5742945075035095,
+            "date": null,
+            "url": "https://raw.githubusercontent.com/subculture-collective/clpr/refs/heads/main/docs/testing/TESTING.md#3",
+            "summary": "**Monitoring & Alerts:…(22)",
+            "snippet": "Load Tests (k6)** (`backend/tests/load/scenarios/cdn_failover.js`) ... - Tests static assets (thumbnails, images, JS bundles) - Tests HLS playlists and media segments - Validates retry behavior and pr…(3113)",
+            "content": "…(0)"
+          }
+        ]
+      }
+    },
+    {
+      "variant": "no_results",
+      "status": 200,
+      "headers": {},
+      "body": {
+        "results": [
+          {
+            "title": "█ ▄▀ ▄▄▄▀█ ▄▄ ▄▄▀  ▀█▄▀██▄ ▄▀",
+            "site_name": "GitHub",
+            "site_icon": "https://cdn.deepseek.com/site-icons/githubusercontent.com",
+            "authority": 3,
+            "rerank_score": 0.2265029400587082,
+            "date": null,
+            "url": "https://raw.githubusercontent.com/DigiNode-Tools/diginode-tools/0caff2307ab5006fbd556de083e2f79bfdc87503/diginode-setup.sh#26",
+            "summary": "printf \"%b Reset Mode:\n...\nreturn\n        fi\n    fi\nfi\n\n# If the SYSTEMD service files do not yet exist, then assume this is a new install\nif [ ! -f \"$DGB_SYSTEMD_SERVICE_FILE\" ] && [ \"$INIT_SYSTEM\" =…(2891)",
+            "snippet": "printf \"%b Reset Mode ... If DigiByte daemon systemd service file already exists, and we are in Reset Mode, stop it and delete it, since we will replace it ... If DigiByte daemon upstart service file …(295)",
+            "content": "…(0)"
+          },
+          {
+            "title": "\"bafkreihogico5an3e2xy3fykalfwxxry7itbhfcgq6f47sif6d7w6uk2ze\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsInVhdiI6IjAuMS4wIn0.eyJhdWQi...",
+            "site_name": "GitHub",
+            "site_icon": "https://cdn.deepseek.com/site-icons/githubusercontent.com",
+            "authority": 3,
+            "rerank_score": 0.15723112225532532,
+            "date": null,
+            "url": "https://raw.githubusercontent.com/ucan-wg/spec/5afccaf8ad6a23d157515d9a7e9aade14c014602/README.md#5",
+            "summary": "# 8. Token Resolution\n\nToken resolution is transport specific. The exact format is left to the relevant UCAN transport specification. At minimum, such a specification MUST define at least the followin…(4640)",
+            "snippet": "Token Resolution Token resolution is transport specific. The exact format is left to the relevant UCAN transport specification. At minimum, such a specification MUST define at least the following ... …(479)",
+            "content": "…(0)"
+          },
+          {
+            "title": "1231czx/orm_2e6_bz128_head_test · Datasets at Hugging Face - [ -0.154296875, 0.0262451171875, -1.703125, -1.0078125, -0.60546875, -1.96875, -1.0546875, 0.25, -1.2890625, 0.34375, 0.51171875...",
+            "site_name": "Hugging Face",
+            "site_icon": "https://cdn.deepseek.com/site-icons/huggingface.co",
+            "authority": 3,
+            "rerank_score": 0.13730543851852417,
+            "date": null,
+            "url": "https://huggingface.co/datasets/1231czx/orm_2e6_bz128_head_test/viewer/default/train?p=4#16",
+            "summary": "What is the domain of the function $f(x) = \\frac{2-x}{\\log(2-\\log(x-2))}$, where $\\log$ is the base $10$ logarithm function? Express your answer in interval notation.\n\n[ \" Step 1: The function is defi…(2283)",
+            "snippet": "What is the domain of the function $f(x) = \\frac{2-x}{\\log(2-\\log(x-2))}$, where $\\log$ is the base $10$ logarithm function ... [ \" Step 1 ... $\\frac{\\sqrt{2}}{2}$, arranged so that no two consecutive…(228)",
+            "content": "…(0)"
+          },
+          {
+            "title": "www.puzzel.com 2a06:98c1:3200::90:3 Public Scan Open in urlscan Pro - - https://www",
+            "site_name": "URLScan",
+            "site_icon": "https://cdn.deepseek.com/site-icons/urlscan.io",
+            "authority": 3,
+            "rerank_score": 0.13330437242984772,
+            "date": "2026-05-13T16:00:00+00:00",
+            "url": "https://urlscan.io/result/019e25c7-c5f9-7550-8e43-38df506aa6a7#5",
+            "summary": "- Thu, 14 May 2026 09:18:\n...\n- <https://www.puzzel.com/webinar-how-to-make-agents-more-effective-with-ai-not-busier?…(117)",
+            "snippet": "Thu, 14 May 2026 09:18:30 GMT ... - link ... - <https://www.puzzel.com/webinar-how-to-make-agents-more-effective-with-ai-not-busier?…(132)",
+            "content": "…(0)"
+          },
+          {
+            "title": "Epel-packagers-sig 三月 2025 ----- 2026 ----- 九月 2026 八月 2026 七月 2026 六月 2026 五月 2026 四月 2026 三月 2026 二月 2026 一月 2026 ----- 2025 ----- 十二月 2025 十一月 2025 十月 2025 九月 2025 八月 2025 七月 2025 六月 2025 五月 2025 四…(658)",
+            "site_name": "Fedorahosted",
+            "site_icon": "https://cdn.deepseek.com/site-icons/fedorahosted.org",
+            "authority": 3,
+            "rerank_score": 0.12930329144001007,
+            "date": null,
+            "url": "https://lists.fedorahosted.org/archives/list/epel-packagers-sig@lists.fedoraproject.org/2025/3/?%3Bpage=2&count=100%27%5B0%5D&page=7",
+            "summary": "[Bug 2300986] New: netbox: FTBFS in Fedora rawhide/f41\n...\nid=2300986 Bug ID:\n...\nFTBFS in Fedora rawhide/f41 Product:\n...\n2260875 (F41FTBFS) Target Milestone:\n...\nFedora netbox failed to build from s…(3046)",
+            "snippet": "from source in Fedora rawhide/f41 https://koji.fedoraproject.org/koji/taskinfo ... //fedoraproject.org/wiki/Fedora_41_Mass_Rebuild Please fix netbox at your earliest convenience and set the bug's stat…(587)",
+            "content": "…(0)"
+          },
+          {
+            "title": "",
+            "site_name": "syzbot",
+            "site_icon": "https://cdn.deepseek.com/site-icons/appspot.com",
+            "authority": 3,
+            "rerank_score": 0.12530221045017242,
+            "date": null,
+            "url": "https://www.syzkaller.appspot.com/text?tag=CrashLog&x=15a374dec80000",
+            "summary": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq\n...\nqqqqqqqqqqqq\n...\nqqqqqq\n...\nqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq…(135)",
+            "snippet": "n9iapxJ5k4bS8cjydpVY+uqsfegcfR ... qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq…(119)",
+            "content": "…(0)"
+          },
+          {
+            "title": "b4b16e4950bf3dac5e6c1a5c9fae359fc16bbdea17799d9a0871bfc80bbe50adedb569d59bd1cc86ec77a0d50ab0de81b6792b9af50eb42622ab77a06ddf7ac6...",
+            "site_name": "GitHub",
+            "site_icon": "https://cdn.deepseek.com/site-icons/githubusercontent.com",
+            "authority": 3,
+            "rerank_score": 0.1212792620062828,
+            "date": "2026-07-04T16:00:00+00:00",
+            "url": "https://raw.githubusercontent.com/intelseclab/poc-archive/master/pocs/social-engineering/2026-07-05_cve-2026-21514-cve-2026-21510-rtf-lnk-builder/gen_rtf.py#7",
+            "summary": "b4b16e4950bf3dac5e6c1a5c9fae359fc16bbdea17799d9a0871bfc80bbe50adedb569d59bd1cc86ec77a0d50ab0de81b6792b9af50eb42622ab77a06ddf7ac6d3831f33f35bfb6bce5299f2baa9cd8bcd4cefc0fe0c57aa43c3fa015d8efeac1fb4bbb9…(1179)",
+            "snippet": "bd0157d380c509b014f03ccd580d464a91634716d ... 4c4356a ... 707ef50a1e75f8865ae4777b8396ef1449742a191d2cd6c1acffb2e1c1fac3c2625958dc0d3542d536747f4bcb3538f0e3f6434d ... 6da8c750521ea85ff73f42e8bb9fece62…(413)",
+            "content": "…(0)"
+          },
+          {
+            "title": "",
+            "site_name": "syzbot",
+            "site_icon": "https://cdn.deepseek.com/site-icons/appspot.com",
+            "authority": 3,
+            "rerank_score": 0.10914123058319092,
+            "date": null,
+            "url": "https://syzkaller.appspot.com/text?tag=CrashLog&x=141ad657c80000",
+            "summary": "14:40 executing program 5:…(26)",
+            "snippet": "r0 = creat(&(0x7f0000000040)='./bus\\x00', 0x0) fcntl$setstatus(r0 ... [ 434.505480][T10028] loop3: detected capacity change from 0 to 2048 03:14:40 executing program 5: syz_mount_image$ext4(&(0x7f0000…(221)",
+            "content": "…(0)"
+          }
+        ]
+      }
+    },
+    {
+      "variant": "bad_key",
+      "status": 401,
+      "headers": {},
+      "body": {
+        "error": {
+          "message": "Authentication Fails, Your api key: ****-key is invalid (request_id: 574394a6-6517-4ae3-a06b-c49b2f8227c6)",
+          "type": "authentication_error",
+          "param": null,
+          "code": "invalid_request_error"
+        }
+      }
+    },
+    {
+      "variant": "overflow",
+      "status": 400,
+      "headers": {},
+      "body": {
+        "error": {
+          "message": "'count' must be between 1 and 50 (request_id: 00f7436c-ac58-4bcd-9225-b647217132b6)",
+          "type": "invalid_request_error",
+          "param": null,
+          "code": "invalid_request_error"
+        }
+      }
+    }
+  ]
+}
