@@ -3,8 +3,8 @@
     "servers": {
       "search-failover": {
         "type": "stdio",
-        "command": "npx",
-        "args": ["-y", "search-failover"],
+        "command": "node",
+        "args": ["dist/index.js"],
         "enabled": true,
         "timeoutMs": 60000
       }

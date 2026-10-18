@@ -1,33 +1,55 @@
-import { REGISTRY, type DomainFilterCap } from './registry.js';
+import type { Runtime } from '../runtime.js';
 
 /**
- * MCP describe 派生文本（D15）：从注册表生成，接新源时 describe 自动跟上，
- * 不再手写名单。依赖方向：describe → registry（单向）。
+ * 给模型看的文字：按实际运行链生成，不列用户没配置的来源。
+ * 每个宿主每轮都会注入工具描述，所以保持简短；怎么读结果放在 server instructions 里。
  */
 
-/** `provider` 参数的枚举说明 */
-export function providerParamDescribe(): string {
-  const names = Object.values(REGISTRY).map(r => r.adapter.name);
-  return `强制指定单一源（调试用）：${names.join(' | ')}`;
+const arrow = (names: string[]) => names.join(' → ');
+
+export function searchDescription(rt: Runtime): string {
+  const names = rt.providers.map(p => p.cfg.name);
+  const status = rt.configError
+    ? 'The server configuration is invalid, so every call fails until it is fixed (call web_search_status for details).'
+    : names.length
+      ? `Active chain: ${arrow(names)}.`
+      : 'No search provider is configured yet, so every call fails until one is (call web_search_status for details).';
+  return [
+    'Search the web. Providers are tried in order and the first one that returns results wins.',
+    status,
+    'Each result has title and url, plus content (longer extract) or snippet (short summary) when available; fetch the url if you need more.',
+    'Empty results: only a fallback_chain made entirely of no_results means nothing was found; otherwise isError is true and the search did not complete.',
+  ].join(' ');
 }
 
-/** `include_domains` 参数的能力分组说明 */
-export function domainFilterDescribe(): string {
-  const groups: Record<DomainFilterCap, string[]> = { native: [], single: [], none: [] };
-  for (const r of Object.values(REGISTRY)) groups[r.capabilities.includeDomains].push(r.adapter.name);
+export function includeDomainsDescription(rt: Runtime): string {
+  const groups = { native: [] as string[], single: [] as string[], none: [] as string[] };
+  for (const p of rt.providers) groups[p.adapter.includeDomains].push(p.cfg.name);
   const parts: string[] = [];
-  if (groups.native.length) parts.push(`${groups.native.join('/')} 原生支持`);
-  if (groups.single.length) parts.push(`${groups.single.join('/')} 支持单域名`);
-  if (groups.none.length) parts.push(`${groups.none.join('/')} 忽略该参数并在 note 说明`);
-  return `仅返回这些域名的结果（${parts.join('，')}）`;
+  if (groups.native.length) parts.push(`${groups.native.join(', ')}: any number of domains`);
+  if (groups.single.length) parts.push(`${groups.single.join(', ')}: one domain`);
+  if (groups.none.length) parts.push(`${groups.none.join(', ')}: ignored`);
+  const support = parts.length ? ` Support: ${parts.join('; ')}. Providers that can apply the filter are tried first.` : '';
+  return `Only return results from these hostnames, e.g. ["docs.python.org"].${support}`;
 }
 
-/** 默认链一览（search 工具总描述用；enabled 默认源按 priority） */
-export function defaultChainDescribe(): string {
-  const chain = Object.values(REGISTRY)
-    .filter(r => r.defaultEnabled)
-    .sort((a, b) => a.priority - b.priority)
-    .map(r => r.adapter.name);
-  const optIn = Object.values(REGISTRY).filter(r => !r.defaultEnabled).map(r => r.adapter.name);
-  return `默认链：${chain.join(' → ')}${optIn.length ? `；可选源（配置文件显式开启）：${optIn.join('/')}` : ''}`;
+export function providerParamDescription(rt: Runtime): string {
+  const names = rt.providers.map(p => p.cfg.name);
+  return `Debug only: query a single provider, bypassing failover and cache. One of: ${names.join(', ') || '(none configured)'}.`;
 }
+
+export const STATUS_DESCRIPTION =
+  'Show search-failover health: which providers are active, blocked (with reason and remaining cooldown) or unconfigured, '
+  + 'local request budgets, cache statistics, proxy, and configuration problems. Call it when web_search keeps failing. No arguments.';
+
+/** server instructions：支持的宿主会注入系统提示，不装插件也能拿到 */
+export const INSTRUCTIONS = [
+  'search-failover provides web search with automatic failover across several search APIs.',
+  'Use web_search whenever the task needs current or external information (docs, releases, news, error messages).',
+  'Never conclude that nothing exists from empty results alone: read meta.fallback_chain.',
+  'A chain made entirely of no_results means the search completed and found nothing; rephrase the query once.',
+  'Any other outcome (rate_limited, quota_exhausted, auth_failure, timeout, network, server_error, budget_exhausted, skipped:*) means the search did not complete, and isError is true.',
+  'auth_failure means that provider\'s API key was rejected: tell the user; failover continues with the other providers.',
+  'meta.note explains degradations such as an ignored include_domains filter, a truncated query or trimmed content.',
+  'When searches keep failing, call web_search_status to see which providers are blocked or misconfigured.',
+].join('\n');

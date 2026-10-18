@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "search-failover": {
-      "command": "npx",
-      "args": ["-y", "search-failover"]
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/index.js"]
     }
   }
 }

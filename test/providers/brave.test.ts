@@ -1,14 +1,14 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { brave, parseAge } from '../../src/providers/brave.js';
 
 const server = useMsw();
-beforeAll(() => { process.env['BRAVE_API_KEY'] = 'test-key'; });
 
 const URL_BASE = 'https://api.search.brave.com/res/v1/web/search';
 
 const OK = {
+  type: 'search',
   web: {
     results: [
       { title: 'Brave Result', url: 'https://example.com/b', description: 'snippet text', page_age: '2026-09-10T00:00:00Z' },
@@ -18,18 +18,30 @@ const OK = {
 };
 
 const call = (includeDomains?: string[]) =>
-  brave.search({ query: 'q', maxResults: 8, includeDomains, useCache: false }, 20, AbortSignal.timeout(2000));
+  brave.search({ query: 'q', maxResults: 8, includeDomains, useCache: false }, 20, AbortSignal.timeout(2000), 'test-key');
 
 describe('Brave adapter 契约', () => {
-  it('正常：description→snippet，page_age 优先，age 相对时间解析', async () => {
-    server.use(http.get(URL_BASE, () => HttpResponse.json(OK)));
+  it('正常：description→snippet，page_age 优先，age 相对时间解析；凭据走 X-Subscription-Token', async () => {
+    let token = '';
+    server.use(http.get(URL_BASE, ({ request }) => {
+      token = request.headers.get('x-subscription-token') ?? '';
+      return HttpResponse.json(OK);
+    }));
     const results = await call();
+    expect(token).toBe('test-key');
     expect(results).toHaveLength(2);
     expect(results[0]).toMatchObject({ title: 'Brave Result', snippet: 'snippet text', publishedDate: '2026-09-10T00:00:00Z' });
     expect(results[1]?.publishedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('单域名过滤拼 site:，多域名降级忽略', async () => {
+  it('响应模型里 web 是可选的：有 type=search 而没有 web → 合法空结果；两者都没有 → 异常', async () => {
+    server.use(http.get(URL_BASE, () => HttpResponse.json({ type: 'search', query: { original: 'q' } })));
+    expect(await call()).toEqual([]);
+    server.use(http.get(URL_BASE, () => HttpResponse.json({ query: { original: 'q' } })));
+    await expectProviderError(call(), 'server_error');
+  });
+
+  it('单域名过滤拼 site:，多域名不拼（由 router 排到能过滤的源之后）', async () => {
     let capturedUrl = '';
     server.use(http.get(URL_BASE, async ({ request }) => {
       capturedUrl = request.url;

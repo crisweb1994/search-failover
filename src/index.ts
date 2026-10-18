@@ -1,52 +1,79 @@
 #!/usr/bin/env node
-import pkg from '../package.json' with { type: 'json' };
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { parseArgs } from 'node:util';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { isConfigured } from './credentials.js';
 import { loadConfig } from './config.js';
-import { ResultCache } from './cache.js';
-import { GatewayState } from './state.js';
-import { REGISTRY } from './providers/registry.js';
-import { defaultChainDescribe, domainFilterDescribe } from './providers/describe.js';
-import { makeSearchHandler, searchInput } from './tools/search.js';
-import { makeStatusHandler } from './tools/status.js';
+import { readEnv } from './env.js';
+import { startHttp } from './http.js';
 import { log } from './logger.js';
+import { initNetwork } from './net.js';
+import { buildRuntime } from './runtime.js';
+import { createMcpServer } from './server.js';
+import { VERSION } from './version.js';
 
-const SEARCH_DESCRIPTION = [
-  '聚合网页搜索（顺序容灾，任一来源限额、超时或空结果时自动切换下一家）。',
-  '每条结果必有 title/url；正文在 content（来源给较长摘要时）或 snippet（只有短摘要时），二者不同时出现，也可能都缺失，缺失时请自行访问 url；publishedDate/score 为部分源提供的可选字段。',
-  'publishedDate 尽力而为；freshness 由各源执行，粒度和日期语义可能不同（千帆 day 会忽略并提示）。',
-  `仅搜特定域名用 include_domains（${domainFilterDescribe()}）。`,
-  '相同查询、条数和过滤条件可命中缓存（默认 TTL 1 小时，day 为 15 分钟，可配置；use_cache=false 绕过读写）；空结果需查看 fallback_chain；错误或跳过导致搜索未完成时 isError=true。总预算内不保证尝试全部来源；DDG 免 key，但可用性取决于网络和反爬限制。',
-  defaultChainDescribe(),
-].join('');
+const USAGE = `search-failover ${VERSION}
+
+Usage:
+  search-failover                        stdio MCP server (default)
+  search-failover --http [--host 127.0.0.1] [--port 8787]
+                                         Streamable HTTP MCP server at /mcp
+  search-failover --version | --help
+
+Environment:
+  BOCHA_API_KEY, TAVILY_API_KEY, ...     provider credentials (SEARXNG_URL for SearXNG)
+  SEARCH_FAILOVER_PROVIDERS              chain in priority order, e.g. tavily,brave,duckduckgo
+  SEARCH_FAILOVER_CONFIG                 config file (default ~/.config/search-failover/config.json)
+  SEARCH_FAILOVER_HTTP_TOKEN             bearer token for --http (required unless bound to loopback)
+  HTTPS_PROXY, HTTP_PROXY, NO_PROXY      outbound proxy
+  LOG                                    error | warn | info | debug (written to stderr)
+`;
+
+const KNOWN_OPTIONS = new Set(['http', 'host', 'port', 'help', 'version']);
 
 async function main(): Promise<void> {
-  const config = loadConfig();
-  const state = new GatewayState();
-  const cache = new ResultCache(config.cache);
+  const { values } = parseArgs({
+    options: {
+      http: { type: 'boolean' },
+      host: { type: 'string' },
+      port: { type: 'string' },
+      help: { type: 'boolean', short: 'h' },
+      version: { type: 'boolean', short: 'v' },
+    },
+    strict: false,
+  });
+  if (values.version) return void process.stdout.write(`${VERSION}\n`);
+  if (values.help) return void process.stdout.write(USAGE);
+  // 未知参数只告警：插件锁定的旧版本遇到新参数时仍能启动
+  for (const key of Object.keys(values)) {
+    if (!KNOWN_OPTIONS.has(key)) log.warn(`ignoring unknown option --${key}`);
+  }
 
-  // 进入运行链 = enabled（用户意愿）× isConfigured（凭据可用，D14/D15）
-  const providers = config.providers
-    .filter(p => p.enabled && REGISTRY[p.name] && isConfigured(p.name))
-    .sort((a, b) => a.priority - b.priority)
-    .map(cfg => ({ cfg, adapter: REGISTRY[cfg.name]!.adapter }));
+  const network = await initNetwork();
+  const loaded = loadConfig();
+  const rt = buildRuntime(loaded, { network });
+  // 配置出错不退出：照常启动，每次搜索都返回这条错误，宿主对话里就能看到
+  if (loaded.error) log.error(`config error (every search fails until it is fixed): ${loaded.error}`);
+  for (const warning of rt.warnings) log.warn(warning);
 
-  const deps = { config, providers, state, cache };
-
-  const server = new McpServer({ name: 'search-failover', version: pkg.version });
-  server.registerTool('search', { description: SEARCH_DESCRIPTION, inputSchema: searchInput }, makeSearchHandler(deps));
-  server.registerTool(
-    'status',
-    { description: '网关状态仪表盘：各源屏蔽状态（blocked 原因与剩余时长）、配额用量与预警、缓存命中统计。无参数。' },
-    makeStatusHandler(deps),
-  );
-
-  await server.connect(new StdioServerTransport());
-  log.info(`search-failover 已启动，可用源: ${providers.map(p => p.cfg.name).join(' -> ') || '(无)'}`);
+  if (values.http) {
+    if (values.port !== undefined && typeof values.port !== 'string') throw new Error('--port needs a value');
+    const port = values.port === undefined ? 8787 : Number(values.port);
+    if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`invalid --port ${String(values.port)}`);
+    const host = typeof values.host === 'string' ? values.host : '127.0.0.1';
+    const server = await startHttp(rt, { host, port, token: readEnv('SEARCH_FAILOVER_HTTP_TOKEN') });
+    const stop = () => {
+      server.close(() => process.exit(0));
+      server.closeAllConnections();
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  } else {
+    await createMcpServer(rt).connect(new StdioServerTransport());
+  }
+  const chain = rt.providers.map(p => p.cfg.name).join(' -> ') || '(none)';
+  log.info(`search-failover ${VERSION} ready; chain: ${chain}${network.proxy ? `; proxy: ${network.proxy}` : ''}`);
 }
 
 main().catch(err => {
-  log.error(`启动失败: ${String(err instanceof Error ? err.stack : err)}`);
+  log.error(`startup failed: ${String(err instanceof Error ? err.stack : err)}`);
   process.exit(1);
 });

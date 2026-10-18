@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { serper } from '../../src/providers/serper.js';
@@ -8,7 +8,6 @@ import { serper } from '../../src/providers/serper.js';
  * 字段来自 playground/第三方口径）——待 scripts/probe.mts 实测后校准（D16）。
  */
 const server = useMsw();
-beforeAll(() => { process.env['SERPER_API_KEY'] = 'test-key'; });
 
 const URL_API = 'https://google.serper.dev/search';
 
@@ -22,7 +21,7 @@ const OK = {
 };
 
 const call = (over: Record<string, unknown> = {}) =>
-  serper.search({ query: 'q', maxResults: 8, useCache: false, ...over } as never, 20, AbortSignal.timeout(2000));
+  serper.search({ query: 'q', maxResults: 8, useCache: false, ...over } as never, 20, AbortSignal.timeout(2000), 'test-key');
 
 describe('serper adapter 契约', () => {
   it('正常：organic 的 link→url、date→publishedDate；knowledgeGraph 等丢弃', async () => {
@@ -33,7 +32,7 @@ describe('serper adapter 契约', () => {
     expect(results[1]?.publishedDate).toBeUndefined();
   });
 
-  it('单域名拼 site: 前缀；多域名不拼并 note 降级', async () => {
+  it('单域名拼 site: 前缀；多域名不拼', async () => {
     let body: any;
     server.use(http.post(URL_API, async ({ request }) => {
       body = await request.json();
@@ -42,8 +41,6 @@ describe('serper adapter 契约', () => {
     await call({ includeDomains: ['github.com'] });
     expect(body['q']).toBe('site:github.com q');
 
-    expect(serper.note?.({ query: 'q', maxResults: 8, includeDomains: ['a.com', 'b.com'], useCache: false } as never))
-      .toContain('多域名');
     await call({ includeDomains: ['a.com', 'b.com'] });
     expect(body['q']).toBe('q');
   });

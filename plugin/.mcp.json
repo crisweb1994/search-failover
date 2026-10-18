@@ -8,7 +8,8 @@
         "search-failover@0.4.0"
       ],
       "env": {
-        "SEARCH_FAILOVER_CONFIG": "${user_config.config_path}"
+        "SEARCH_FAILOVER_CONFIG": "${user_config.config_path}",
+        "SEARCH_FAILOVER_PROVIDERS": "${user_config.providers}"
       },
       "timeoutMs": 60000
     }

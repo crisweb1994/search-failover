@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { zhipu } from '../../src/providers/zhipu.js';
@@ -8,7 +8,6 @@ import { zhipu } from '../../src/providers/zhipu.js';
  * 待 scripts/probe.mts 实测后校准（D16：fixture 应来自真实响应）。
  */
 const server = useMsw();
-beforeAll(() => { process.env['ZHIPU_API_KEY'] = 'test-key'; });
 
 const URL_API = 'https://open.bigmodel.cn/api/paas/v4/web_search';
 
@@ -20,7 +19,7 @@ const OK = {
 };
 
 const call = (over: Record<string, unknown> = {}) =>
-  zhipu.search({ query: 'q', maxResults: 8, useCache: false, ...over } as never, 20, AbortSignal.timeout(2000));
+  zhipu.search({ query: 'q', maxResults: 8, useCache: false, ...over } as never, 20, AbortSignal.timeout(2000), 'test-key');
 
 describe('zhipu adapter 契约', () => {
   it('正常：link→url，content 直传且不重复给 snippet，publish_date 直传', async () => {
@@ -32,7 +31,7 @@ describe('zhipu adapter 契约', () => {
     expect(results[1]?.publishedDate).toBeUndefined();
   });
 
-  it('query 超 70 字符截断并 note；单域名传 search_domain_filter，多域名 note 降级', async () => {
+  it('query 超 70 字符截断并 note；单域名传 search_domain_filter', async () => {
     let body: any;
     server.use(http.post(URL_API, async ({ request }) => {
       body = await request.json();
@@ -40,9 +39,8 @@ describe('zhipu adapter 契约', () => {
     }));
     const long = '长'.repeat(80);
     expect(zhipu.note?.({ query: long, maxResults: 8, includeDomains: ['a.com'], useCache: false } as never))
-      .toContain('已截断');
-    expect(zhipu.note?.({ query: 'q', maxResults: 8, includeDomains: ['a.com', 'b.com'], useCache: false } as never))
-      .toContain('多域名');
+      .toBe('zhipu: query truncated to 70 characters');
+    expect(zhipu.note?.({ query: 'q', maxResults: 8, includeDomains: ['a.com', 'b.com'], useCache: false } as never)).toBeUndefined();
 
     await call({ query: long, includeDomains: ['a.com'] });
     expect(body['search_query'].length).toBe(70);
@@ -71,10 +69,12 @@ describe('zhipu adapter 契约', () => {
     await expectProviderError(call(), 'quota_exhausted');
   });
 
-  it('401 / body code 1000 → auth_failure', async () => {
+  it('401 / body code 1000 → auth_failure；没有错误体时 detail 不出现 NaN', async () => {
     server.use(http.post(URL_API, () =>
       new HttpResponse(JSON.stringify({ error: { code: '1000' } }), { status: 401 })));
-    await expectProviderError(call(), 'auth_failure');
+    expect((await expectProviderError(call(), 'auth_failure')).detail).toBe('http_401 1000');
+    server.use(http.post(URL_API, () => new HttpResponse(null, { status: 401 })));
+    expect((await expectProviderError(call(), 'auth_failure')).detail).toBe('http_401');
   });
 
   it('body code 1703（引擎无数据）→ no_results；1210 → request_error', async () => {

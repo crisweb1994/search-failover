@@ -1,0 +1,18 @@
+name: PR title
+
+# PR 以 squash 合并时，标题就是进入 main 的提交信息，release-please 靠它决定版本号和 CHANGELOG：
+# feat → minor，fix → patch，feat! 或 BREAKING CHANGE → major（1.0 之前为 minor）。
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

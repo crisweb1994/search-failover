@@ -1,5 +1,24 @@
 import { z } from 'zod';
-import { ProviderError, type Freshness, type ProviderAdapter, type RawResult, type SearchRequest } from '../types.js';
+import { httpFetch } from '../net.js';
+import { ProviderError, type ProviderAdapter } from '../types.js';
+import type { ProviderCfg, QuotaCfg } from '../config.js';
+
+/**
+ * 一个来源的全部静态信息：行为（adapter）+ 凭据、默认值、能力。
+ * 注册表、默认配置、工具描述、status、插件清单与文档表格都从这里派生。
+ */
+export interface ProviderDefinition {
+  readonly adapter: ProviderAdapter;
+  /** 显示名（文档、插件清单） */
+  readonly label: string;
+  /** 配置该源的环境变量（API key 或实例地址）；null = 不需要凭据 */
+  readonly credentialEnv: string | null;
+  /** 不显式指定名单时是否进默认链；false = 付费 / 一次性额度源，必须显式列出 */
+  readonly defaultEnabled: boolean;
+  /** 默认本地请求预算 */
+  readonly quota: QuotaCfg;
+  readonly extraDefaults?: Partial<Pick<ProviderCfg, 'local_qps' | 'min_interval_ms' | 'cooldown_max_s'>>;
+}
 
 export interface HttpResponseInfo {
   status: number;
@@ -27,6 +46,16 @@ async function readTextCapped(res: Response, provider: string, limit = MAX_BODY_
   }
 }
 
+/** fetch 的报错只有 "fetch failed"，真正原因（ENOTFOUND、ECONNREFUSED、证书错误……）在 cause 里 */
+export function describeNetworkError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const cause = (e as Error & { cause?: unknown }).cause;
+  if (!(cause instanceof Error)) return e.message;
+  const code = (cause as Error & { code?: unknown }).code;
+  const reason = typeof code === 'string' && !cause.message.includes(code) ? `${code} ${cause.message}` : cause.message;
+  return `${e.message}: ${reason || code || cause.name}`.slice(0, 200);
+}
+
 /**
  * fetch 包装：网络异常/超时统一映射为 ProviderError（timeout/network），
  * HTTP 状态码原样返回，由各家 adapter 的 classify 决定分类。
@@ -38,7 +67,7 @@ export async function rawRequest(
   signal?: AbortSignal,
 ): Promise<HttpResponseInfo> {
   try {
-    const res = await fetch(url, { ...init, signal });
+    const res = await httpFetch(url, { ...init, signal });
     return { status: res.status, headers: res.headers, bodyText: await readTextCapped(res, provider) };
   } catch (e) {
     if (e instanceof ProviderError) throw e;
@@ -46,7 +75,7 @@ export async function rawRequest(
     if (signal?.aborted || name === 'TimeoutError' || name === 'AbortError') {
       throw new ProviderError(provider, 'timeout', 'aborted');
     }
-    throw new ProviderError(provider, 'network', String(e instanceof Error ? e.message : e));
+    throw new ProviderError(provider, 'network', describeNetworkError(e));
   }
 }
 
@@ -108,14 +137,6 @@ export function truncateContent(s: string | undefined): string | undefined {
   return s?.trim() ? s.slice(0, CONTENT_MAX_CHARS) : undefined;
 }
 
-/** freshness → 各源枚举映射表（impl-spec §7；Exa/百度千帆在各自 adapter 里换算，不入此表） */
-export const FRESHNESS: Record<string, Record<Freshness, string>> = {
-  bocha: { day: 'oneDay', week: 'oneWeek', month: 'oneMonth', year: 'oneYear' },
-  tavily: { day: 'day', week: 'week', month: 'month', year: 'year' },
-  brave: { day: 'pd', week: 'pw', month: 'pm', year: 'py' },
-  ddg: { day: 'd', week: 'w', month: 'm', year: 'y' },
-  zhipu: { day: 'oneDay', week: 'oneWeek', month: 'oneMonth', year: 'oneYear' },
-  serper: { day: 'qdr:d', week: 'qdr:w', month: 'qdr:m', year: 'qdr:y' },
-};
-
-export type { ProviderAdapter, RawResult, SearchRequest };
+/** zod 里把 null 统一成 undefined 的可选字符串/数字 */
+export const optionalString = z.string().nullish().transform(v => v ?? undefined);
+export const optionalNumber = z.number().nullish().transform(v => v ?? undefined);

@@ -1,17 +1,16 @@
 import { z } from 'zod';
-import { apiKeyFor } from '../credentials.js';
-import { ProviderError, type Freshness, type RawResult } from '../types.js';
+import { ProviderError, type Freshness, type ProviderAdapter, type RawResult } from '../types.js';
 import {
-  classifyDefault, rawRequest, parseSuccess, truncateContent,
-  type HttpResponseInfo, type ProviderAdapter,
+  classifyDefault, optionalNumber, optionalString, rawRequest, parseSuccess, truncateContent,
+  type HttpResponseInfo, type ProviderDefinition,
 } from './types.js';
 
 const itemSchema = z.object({
   title: z.string().min(1),
   url: z.string().min(1),
-  text: z.string().nullish().transform(v => v ?? undefined),
-  publishedDate: z.string().nullish().transform(v => v ?? undefined),
-  score: z.number().nullish().transform(v => v ?? undefined),
+  text: optionalString,
+  publishedDate: optionalString,
+  score: optionalNumber,
 });
 
 const ENDPOINT = 'https://api.exa.ai/search';
@@ -23,7 +22,8 @@ const FRESHNESS_DAYS: Record<Freshness, number> = { day: 1, week: 7, month: 30, 
 export const exa: ProviderAdapter = {
   name: 'exa',
   maxCount: 100,
-  async search(req, fetchCount, signal) {
+  includeDomains: 'native',
+  async search(req, fetchCount, signal, credential) {
     const body: Record<string, unknown> = {
       query: req.query,
       numResults: fetchCount,
@@ -37,26 +37,19 @@ export const exa: ProviderAdapter = {
 
     const res = await rawRequest(ENDPOINT, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKeyFor('exa') ?? ''}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${credential ?? ''}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }, 'exa', signal);
 
     if (res.status !== 200) throw classify(res);
     const json = parseSuccess(res.bodyText, z.object({ results: z.array(itemSchema) }), 'exa');
-    const items = json.results;
-    return items.map((it): RawResult => {
-      const content = truncateContent(it.text);
-      return {
-        title: it.title,
-        url: it.url,
-        content,
-        score: typeof it.score === 'number' ? it.score : undefined,
-        publishedDate: it.publishedDate ?? undefined,
-      };
-    });
+    return json.results.map((it): RawResult => ({
+      title: it.title,
+      url: it.url,
+      content: truncateContent(it.text),
+      score: it.score,
+      publishedDate: it.publishedDate,
+    }));
   },
 };
 
@@ -66,3 +59,12 @@ function classify(res: HttpResponseInfo): ProviderError {
   if (res.status === 429) return new ProviderError('exa', 'rate_limited', 'http_429');
   return classifyDefault(res, 'exa');
 }
+
+export const definition: ProviderDefinition = {
+  adapter: exa,
+  label: 'Exa',
+  credentialEnv: 'EXA_API_KEY',
+  defaultEnabled: true,
+  // 2026-10-04 exa.ai/pricing：月度 credits；800 仅为本地请求预算。
+  quota: { type: 'monthly', limit: 800, reset_day: 1 },
+};

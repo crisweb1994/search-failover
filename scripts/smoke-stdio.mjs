@@ -4,18 +4,18 @@
  *
  * 验证内容（对应插件验收清单）：
  *   ① stdout 每行均为合法 JSON-RPC（协议纯净性）
- *   ② initialize → notifications/initialized → tools/list → tools/call status → tools/call search
+ *   ② initialize → notifications/initialized → tools/list → web_search_status → web_search
  *   ③ 零 key 环境：DDG active、其余源 unconfigured
- *   ④ 真实搜索一条（DuckDuckGo 兜底）并输出 fallback_chain
+ *   ④ 真实搜索一条（DuckDuckGo 兜底，国内网络需要 --env HTTPS_PROXY=...）并输出 fallback_chain
  *
  * 用法：
  *   node scripts/smoke-stdio.mjs                        # 零 key，npx -y search-failover@<package.json 版本>
  *   node scripts/smoke-stdio.mjs --command node -- dist/index.js   # 本地构建（自定义命令在调用者 cwd 下运行）
  *   node scripts/smoke-stdio.mjs --env TAVILY_API_KEY=xxx          # 追加环境变量（其余 key 仍清空）
- *   node scripts/smoke-stdio.mjs --config /abs/path/search-failover.json
+ *   node scripts/smoke-stdio.mjs --config /abs/path/config.json
  *
- * 环境基线：7 个 provider key 与 SEARCH_FAILOVER_CONFIG 一律先清空（宿主残留不污染基线），
- * 再应用显式的 --env / --config。
+ * 环境基线：所有来源凭据（*_API_KEY、SEARXNG_URL）和 SEARCH_FAILOVER_* 一律先清空，用户级配置目录
+ * 指向空的临时目录（本机的 ~/.config/search-failover 不污染基线），再应用显式的 --env / --config。
  *
  * 退出码：0 全过；1 断言失败（协议/状态）；2 协议全过但真实搜索为空（上游问题，看输出的链）。
  */
@@ -23,10 +23,10 @@
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8'));
@@ -44,11 +44,10 @@ const extraEnv = Object.fromEntries((values.env ?? []).map(kv => {
 const customCommand = values.command !== undefined;
 const command = customCommand ? [values.command, ...positionals] : ['npx', '-y', `search-failover@${pkg.version}`];
 
-const KEY_NAMES = ['BOCHA_API_KEY', 'TAVILY_API_KEY', 'BRAVE_API_KEY', 'EXA_API_KEY', 'ZHIPU_API_KEY', 'QIANFAN_API_KEY', 'SERPER_API_KEY'];
-// 零 key / 零配置基线：清空全部 provider key 与宿主残留的 SEARCH_FAILOVER_CONFIG，再叠加 --env / --config
-const childEnv = { ...process.env };
-for (const k of KEY_NAMES) childEnv[k] = '';
-delete childEnv.SEARCH_FAILOVER_CONFIG;
+// 零 key / 零配置基线：按命名规则清空凭据与网关变量（不手抄来源名单），再叠加 --env / --config
+const isCredential = k => /_API_KEY$/.test(k) || k === 'SEARXNG_URL';
+const childEnv = Object.fromEntries(Object.entries(process.env).filter(([k]) => !isCredential(k) && !k.startsWith('SEARCH_FAILOVER_')));
+childEnv.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'smoke-stdio-config-'));
 childEnv.LOG = 'error';
 if (configPath) childEnv.SEARCH_FAILOVER_CONFIG = resolve(configPath);
 Object.assign(childEnv, extraEnv);
@@ -115,24 +114,25 @@ const run = async () => {
   send({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
   const tools = await waitFor(2, 'tools/list');
   const names = tools.result.tools.map((t) => t.name);
-  for (const expect of ['search', 'status']) {
+  for (const expect of ['web_search', 'web_search_status']) {
     if (!names.includes(expect)) fail(`tools/list 缺少 ${expect}（实际: ${names.join(',')}）`);
   }
   console.log(`✓ notifications/initialized + tools/list（${names.join(' / ')}）`);
 
-  send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'status', arguments: {} } });
-  const status = await waitFor(3, 'tools/call status');
+  send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'web_search_status', arguments: {} } });
+  const status = await waitFor(3, 'tools/call web_search_status');
   const payload = JSON.parse(status.result.content[0].text);
   const byName = Object.fromEntries(payload.providers.map((p) => [p.name, p.state]));
   console.log(`✓ status：${payload.providers.map((p) => `${p.name}=${p.state}`).join(', ')}`);
-  const hasAnyKey = KEY_NAMES.some((k) => extraEnv[k]);
+  if (payload.config?.error) fail(`配置错误: ${payload.config.error}`);
+  const hasAnyKey = Object.keys(extraEnv).some(isCredential) || Boolean(configPath);
   if (!hasAnyKey) {
     if (byName['duckduckgo'] !== 'active') fail(`零 key 环境下 duckduckgo 应为 active，实际 ${byName['duckduckgo']}`);
     if (byName['bocha'] !== 'unconfigured') fail(`零 key 环境下 bocha 应为 unconfigured，实际 ${byName['bocha']}`);
   }
 
-  send({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'search', arguments: { query: 'model context protocol', max_results: 3, use_cache: false } } });
-  const search = await waitFor(4, 'tools/call search', 60000);
+  send({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'web_search', arguments: { query: 'model context protocol', max_results: 3, use_cache: false } } });
+  const search = await waitFor(4, 'tools/call web_search', 60000);
   const result = JSON.parse(search.result.content[0].text);
   const chain = (result.meta?.fallback_chain ?? []).map((s) => `${s.provider}:${s.outcome}`).join(' → ');
   console.log(`✓ search：provider_used=${result.meta?.provider_used}，${result.results.length} 条结果`);

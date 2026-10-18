@@ -1,10 +1,9 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { exa } from '../../src/providers/exa.js';
 
 const server = useMsw();
-beforeAll(() => { process.env['EXA_API_KEY'] = 'test-key'; });
 
 const OK = {
   results: [
@@ -12,7 +11,7 @@ const OK = {
   ],
 };
 
-const call = () => exa.search({ query: 'q', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(2000));
+const call = () => exa.search({ query: 'q', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(2000), 'test-key');
 
 describe('Exa adapter 契约', () => {
   it('正常：text→content 截断 2000，不重复给 snippet', async () => {
@@ -32,7 +31,7 @@ describe('Exa adapter 契约', () => {
     }));
     await exa.search(
       { query: 'q', maxResults: 8, freshness: 'week', includeDomains: ['docs.rs'], useCache: false },
-      20, AbortSignal.timeout(2000));
+      20, AbortSignal.timeout(2000), 'test-key');
     expect(captured.includeDomains).toEqual(['docs.rs']);
     expect(captured.type).toBe('fast');
     const days = (Date.now() - Date.parse(captured.startPublishedDate)) / 86_400_000;
