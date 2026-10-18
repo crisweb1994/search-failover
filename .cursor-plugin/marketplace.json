@@ -10,7 +10,7 @@
     {
       "name": "search-failover",
       "source": "plugin",
-      "description": "Aggregated web search with automatic failover: Bocha/Tavily/Brave/Exa/DuckDuckGo by default, opt-in Zhipu/Qianfan/Serper"
+      "description": "Web search with automatic failover across Bocha/Tavily/Brave/Exa/SearXNG/DuckDuckGo, opt-in Zhipu/Qianfan/Serper. Works with zero API keys (DuckDuckGo fallback)."
     }
   ]
 }

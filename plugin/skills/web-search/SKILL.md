@@ -1,54 +1,50 @@
 ---
 name: web-search
-description: Retrieve current web results via the search-failover MCP server (aggregated search across Bocha/Tavily/Brave/Exa/DuckDuckGo with automatic failover). Use for any question that needs up-to-date online information — library docs, API versions, news, error messages, current events. Also covers how to read meta.fallback_chain outcomes and the status dashboard tool.
+description: Search the web through the search-failover MCP server (web_search tool, automatic failover across several search APIs). Use it whenever an answer depends on current or external information — library docs, API versions, releases, news, error messages. Also explains how to read meta.fallback_chain and when to call web_search_status.
 ---
 
 # Web search via search-failover
 
-## When to use `search`
+## When to search
 
-Reach for the `search` tool whenever the task depends on information you cannot reliably know from training data: recent releases, current library APIs, news, live prices/availability, or unfamiliar error messages. Do not use it for stable knowledge you already have.
+Use `web_search` when the task depends on information you cannot reliably know from training data: recent releases, current library APIs, news, prices, unfamiliar error messages. Skip it for stable knowledge.
 
-## Calling `search`
+## Calling `web_search`
 
-- `query` (required): keep it a focused search phrase, not a full sentence. The gateway truncates at 400 characters.
-- `max_results`: default 8, max 20.
-- `freshness`: `day` / `week` / `month` / `year` for time-sensitive questions. Providers apply their own time semantics; Qianfan ignores `day` and reports it in `meta.note`. `publishedDate` is best-effort.
-- `include_domains`: restrict results to specific sites (e.g. docs sites). Support varies by provider; some ignore it.
-- `provider`: force a single provider — debugging only, defeats failover.
-- `use_cache`: `false` to bypass cache reads and writes (e.g. breaking news). Default TTL is 1 hour, or 15 minutes for freshness=day; both are configurable. Cache keys include query, requested count and filters, so different counts use separate entries. Nonempty short responses can be cached.
+- `query` (required): a short, specific search phrase rather than a full sentence.
+- `max_results`: 1–20, default 8.
+- `freshness`: `day` / `week` / `month` / `year` for time-sensitive questions.
+- `include_domains`: hostnames such as `docs.python.org`. Providers that can apply the filter are tried first; if the answer still came from one that cannot, `meta.note` says the filter was ignored.
+- `use_cache`: `false` to bypass the cache (breaking news).
 
-Every result has `title` / `url`. The page text arrives in `content` (when the source returns a longer summary) or in `snippet` (when it only returns a short one) — never both, and sometimes neither. `publishedDate` and `score` are optional too. Fetch the `url` when the text you got is not enough.
+Results always have `title` and `url`; the text is in `content` (longer extract) or `snippet` (short summary), sometimes neither. Fetch the `url` when you need more.
 
-## Decide from `meta.fallback_chain`, not from result count alone
+## Reading the result
 
-Empty `results` has several very different causes. Check the last entries of `fallback_chain` before reacting:
+Check `meta.fallback_chain` before concluding anything from empty results.
 
-| Outcome in chain | Meaning | What you should do |
+| Outcome | Meaning | What to do |
 |---|---|---|
-| results returned | `provider_used` responded | Proceed normally |
-| nonempty chain contains only `no_results` | Attempted providers returned valid empty results | Rewrite the query (broader terms, other language, fewer filters) and retry **once** |
-| `auth_failure` / `skipped:auth_failure` (detail `until_restart`) | A provider rejected its credentials; later searches skip it until the host restarts | Tell the user that provider's API key is wrong/missing; other providers carry on automatically |
-| `rate_limited` / `quota_exhausted` | Provider throttled or out of quota | Failover already ran; if every provider is limited, report the quota situation instead of hammering retries |
-| `skipped:budget_exhausted` | The 30s total budget ran out mid-chain | This search did **not** complete — do not conclude "no results"; optionally retry once later |
-| `skipped:quota_local` | Local quota counter says this provider is spent | Process-local request budget exhausted; an empty incomplete search sets `isError=true` |
-| `request_error` | Provider rejected the request parameters | Check query/filters; the provider remains available for other requests |
-| `internal_error` (provider `gateway`) | The gateway itself hit a bug | Report the tool failure to the user; do not blind-retry |
+| results returned | `meta.provider_used` answered | Use them |
+| chain is all `no_results` | The search completed and found nothing | Rephrase once (broader terms, another language, fewer filters) |
+| `auth_failure` / `skipped:auth_failure` | That provider's key was rejected; it stays off until restart | Tell the user to fix that key; other providers keep working |
+| `rate_limited` / `quota_exhausted` | Throttled or out of quota; failover already ran | If every provider is limited, report it instead of retrying |
+| `budget_exhausted` / `skipped:budget_exhausted` | The 30-second total budget ran out | The search did not complete; retry at most once, later |
+| `skipped:quota_local` | The local request budget for that provider is used up | Mention it if nothing else answered |
+| `request_error` | The provider rejected the parameters | Adjust the query or filters |
+| `config_error` / `no_provider` (provider `gateway`) | Server configuration problem | Tell the user; call `web_search_status` for details |
+| `internal_error` (provider `gateway`) | Gateway bug | Report it; do not retry blindly |
 
-The 30s budget may end before all providers are tried. Empty results with any failure/skip or no runnable provider set `isError=true`; a nonempty chain consisting only of `no_results` does not.
+Whenever results are empty and the chain contains anything other than `no_results`, `isError` is true: say the search failed, not that nothing exists.
 
-Never treat `results: []` as "no information exists" without checking the chain — the distinction between "searched and found nothing" and "search did not complete" matters to the user.
+`meta.note` explains degradations: ignored filters, truncated queries, content trimmed to fit the output budget.
 
-## `status`
+## `web_search_status`
 
-No-argument dashboard: per-provider blocked state and remaining cooldown, quota usage with 90% warnings, cache hit stats, uptime. Call it when searches behave oddly, or to answer "which providers are actually active right now?".
+No arguments. Shows each provider's state (`active`, `blocked(...)`, `unconfigured`, `disabled`), the environment variable that configures it (`credential_env`), local budgets, cache statistics, the proxy in use and any configuration error or warning. Use it when searches keep failing or the user asks which providers are active.
 
-## Configuration facts worth knowing
+## Helping the user configure
 
-- Works with **zero API keys**: DuckDuckGo requires no key but is subject to network and anti-bot restrictions (needs network and a local Node ≥ 20.10 via npx).
-- API keys arrive through host environment variables: `BOCHA_API_KEY`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, `EXA_API_KEY`, `ZHIPU_API_KEY`, `QIANFAN_API_KEY`, `SERPER_API_KEY` (7 keys; DuckDuckGo needs none).
-- A key alone does **not** activate Zhipu / Qianfan / Serper: they are opt-in and must be enabled in `search-failover.json` (refer the user to the search-failover README if they ask why a keyed provider shows as disabled in `status`).
-
-Counters, cooldowns and cache are per process and reset on restart. `used_requests` counts approved upstream attempts, including failures and cancellation after admission; `used_this_month` is a deprecated alias, not an account balance.
-
-All providers fetch only the requested count, capped by their own maximum. Quota-error health cooldowns use a valid future upstream recovery time, or top-level provider `quota_retry_s` (default 6 hours); local reset_day affects only the request counter. Recovery does not bypass an exhausted local budget and does not trigger background probes. Legacy quota.quota_retry_s is promoted; fetch_policy and cache.store_size are accepted but ignored.
+- Credentials come from the host's environment variables (the `credential_env` in status), or from the `credentials` section of `~/.config/search-failover/config.json`, which every host shares.
+- `SEARCH_FAILOVER_PROVIDERS` (comma-separated, in priority order) selects the chain. Zhipu, Qianfan and Serper are paid or one-off credit sources and only run when listed there or in the config file.
+- With no keys at all, DuckDuckGo is used. It is unreachable from mainland China without a proxy (`HTTPS_PROXY`); a self-hosted SearXNG (`SEARXNG_URL`) is a free alternative.
