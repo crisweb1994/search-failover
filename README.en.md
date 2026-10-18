@@ -1,25 +1,25 @@
 # search-failover
 
-[English](README.en.md) | [简体中文](README.md)
+[简体中文](README.md) | [English](README.en.md)
 
-[![npm](https://img.shields.io/npm/v/search-failover)](https://www.npmjs.com/package/search-failover) [![CI](https://github.com/crisweb1994/search-failover/actions/workflows/ci.yml/badge.svg)](https://github.com/crisweb1994/search-failover/actions/workflows/ci.yml) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![MCP](https://img.shields.io/badge/MCP-stdio-6E43B8) ![license](https://img.shields.io/badge/license-MIT-blue)
+[![npm](https://img.shields.io/npm/v/search-failover)](https://www.npmjs.com/package/search-failover) [![CI](https://github.com/crisweb1994/search-failover/actions/workflows/ci.yml/badge.svg)](https://github.com/crisweb1994/search-failover/actions/workflows/ci.yml) ![Node](https://img.shields.io/badge/node-%E2%89%A520.10-339933) ![MCP](https://img.shields.io/badge/MCP-stdio%20%7C%20HTTP-6E43B8) ![license](https://img.shields.io/badge/license-MIT-blue)
 
-**One `search` tool, eight search APIs behind it.** When one runs out of quota, gets rate-limited, times out or comes back empty, the next one takes over.
+**One `web_search` tool backed by 9 search sources.** When one runs out of quota, gets rate limited, times out or returns nothing, the next one takes over. Local hosts use stdio, remote platforms use Streamable HTTP, and the published package is a single file with no runtime dependencies.
 
-[Quick start](#quick-start) · [Providers](#providers) · [How it works](#how-it-works) · [Hosts](#connect-your-host) · [Configuration](#configuration) · [Tools](#tools-and-responses) · [Limitations](#status-and-limitations)
+[Quick start](#quick-start) · [Providers](#providers) · [How it works](#how-it-works) · [Hosts](#hosts) · [Configuration](#configuration) · [Network and proxy](#network-and-proxy) · [Tools](#tools-and-results) · [Limitations](#status-and-limitations)
 
 ## Why
 
-When an agent's search tool is wired to a single API, that API's monthly quota, a rate limit or a network hiccup is enough to fail the search. Worse, if the tool swallows the failure and returns an empty array, the agent concludes the web has nothing on the topic and answers from training data, sounding sure of itself.
+An agent whose search tool is wired to a single API fails as soon as that API's monthly quota runs out, it gets rate limited, or the network hiccups. Worse, if the tool swallows the failure and returns an empty array, the agent concludes there is nothing online and answers from training data, confidently.
 
-search-failover puts several search APIs behind one `search` tool and tries them in priority order. The first one that returns results ends the search. Every step is written into the response, so the agent can see which providers were tried, which were skipped, and why.
+search-failover puts several search APIs behind one `web_search` tool and tries them in priority order; the first non-empty result wins. Every step is recorded in the result, so the agent can see which providers were tried, which were skipped, and why.
 
-## What a response looks like
+## What a result looks like
 
-A search where Bocha is out of balance, Tavily is rate-limited and Brave returns results (the upstream responses are mocked, to show the response shape):
+A search where Bocha is out of credit, Tavily is rate limited and Brave answers (upstream responses are simulated; the real output is compact JSON, formatted here):
 
 ```jsonc
-// search({ "query": "mcp stdio transport" })
+// web_search({ "query": "mcp stdio transport" })
 {
   "results": [
     {
@@ -29,7 +29,7 @@ A search where Bocha is out of balance, Tavily is rate-limited and Brave returns
       "publishedDate": "2026-09-18T00:00:00",
       "provider": "brave"
     }
-    // …remaining results omitted
+    // …more results
   ],
   "meta": {
     "provider_used": "brave",
@@ -43,118 +43,148 @@ A search where Bocha is out of balance, Tavily is rate-limited and Brave returns
 }
 ```
 
-`fallback_chain` lists every provider that came up empty. Bocha returned 403 (out of balance), recorded as `quota_exhausted`, and is not asked again for a while. Tavily returned 429, recorded as `rate_limited`, and is retried only after its cooldown. Brave returned results, so the search ended.
+`fallback_chain` lists every provider that did not answer: Bocha returned 403 (out of credit), recorded as `quota_exhausted` and left alone for a while; Tavily returned 429, recorded as `rate_limited` and retried after a cooldown; Brave answered and the search ended.
 
-Read the chain when the results are empty, too. Only a chain made up entirely of normal `no_results` means nothing was found. If any provider errored or was skipped, the MCP result carries `isError: true`, meaning the search did not complete.
+Read the same chain when results are empty. Only a chain made entirely of `no_results` means nothing was found; if any provider failed or was skipped, the MCP result has `isError: true`, meaning the search did not complete.
 
-## Highlights
+## Features
 
-- **Automatic failover.** The default chain is Bocha → Tavily → Brave → Exa → DuckDuckGo, eight providers once the opt-in ones are on. The first non-empty result ends the search. A failure is never retried on the same provider; the next provider is the retry.
-- **Errors classified by what each provider actually sends.** Bocha's 403 means out of balance, Brave reports an invalid key as 422 (not 401), the same 429 can mean a per-second limit or an exhausted monthly quota, and DuckDuckGo throttles with a 202 and an anomaly page. Each adapter handles its own provider and maps the signals to eight error classes, each with its own cooldown.
-- **Responses written for the model.** A full decision chain. "Found nothing" and "search did not complete" are told apart by MCP's `isError`. Parameters a provider can't honor (Bocha has no `include_domains`, for instance) are called out in `note` instead of being dropped silently. The plugin also ships a Skill that teaches the model how to read the chain.
-- **No surprise bills.** Paid or one-time-credit providers (Zhipu, Qianfan, Serper) stay out of the chain until you enable them in the config; a key alone is not enough. Most providers have a local request budget and pacing, and concurrent requests cannot overshoot them.
-- **Works with no configuration.** With no API key it falls back to DuckDuckGo. `npx` starts it, and Codex and ZCode can install it from a plugin marketplace.
-- **Small and auditable.** Three runtime dependencies (the MCP SDK, zod, htmlparser2). No database, no background tasks, all state in process memory. Logs go to stderr and stdout carries protocol frames only.
+- **Automatic failover.** The default chain is Bocha → Tavily → Brave → Exa → SearXNG → DuckDuckGo; providers join only when their credentials are configured, and keyless DuckDuckGo is the last resort. A failure is never retried on the same provider; the next provider is the retry.
+- **Classified by each provider's real signals.** Bocha's 403 means out of credit, Brave's invalid key is a 422 (not 401), a 429 can mean a per-second limit or an exhausted monthly quota, and DuckDuckGo signals rate limiting with a 202 and an anomaly page. Each adapter maps these to 8 error classes with their own cooldown policies.
+- **Results written for the model.** The full decision chain is included; "found nothing" and "did not search" are distinguished with MCP `isError`; with `include_domains`, providers that can apply the filter are tried first, and `note` says so when the provider that answered could not; the tool description lists only providers that are actually available.
+- **One configuration for every host.** Credentials and provider order can be set entirely through environment variables or in `~/.config/search-failover/config.json`, so each host only needs `npx -y search-failover`. `${...}` templates a host failed to expand are never mistaken for keys.
+- **Local and remote.** stdio for local hosts such as Claude Code, Cursor and Codex; `--http` starts a Streamable HTTP server for platforms that only support remote MCP, with quota counters, cooldowns and cache shared by every client.
+- **No surprise bills.** Paid or one-off-credit providers (Zhipu, Qianfan, Serper) never join the chain just because a key is set; they must be listed explicitly. Most providers carry local request budgets and rate limits that hold under concurrency.
+- **Proxy support.** Honors `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` (Node's built-in fetch ignores them).
+- **Small and auditable.** The package is a single esbuild bundle, so a cold `npx` start downloads one package; no database, no background jobs, state lives in process memory, and all logs go to stderr.
 
 ## Quick start
 
-Requires Node ≥ 20.10. There is nothing to install; `npx` runs it.
+Requires Node ≥ 20.10. No install needed; `npx` runs it.
 
-**1. Get some API keys.** Configure as many as you like. With none at all it still runs, using DuckDuckGo only.
+**1. Credentials.** Configure as many as you like; with none at all only DuckDuckGo is available (it needs a proxy from mainland China, see [Network and proxy](#network-and-proxy)). The user-level config file is shared by every host:
 
-```bash
-export BOCHA_API_KEY=...    # good at Chinese-language search
-export TAVILY_API_KEY=...   # 1,000 requests/month
-export BRAVE_API_KEY=...
-export EXA_API_KEY=...
+```jsonc
+// ~/.config/search-failover/config.json (Windows: %APPDATA%\search-failover\config.json)
+{
+  "credentials": {
+    "BOCHA_API_KEY": "...",
+    "TAVILY_API_KEY": "..."
+  }
+}
 ```
 
-The other providers are listed under [Providers](#providers).
+Consider `chmod 600` on that file. Environment variables work too (names in [Providers](#providers)) and take precedence.
 
-**2. Connect your host.** Codex as an example:
+**2. Add it to a host.** For example Claude Code:
 
 ```bash
-codex mcp add search-failover -- npx -y search-failover
+claude mcp add search-failover -- npx -y search-failover
 ```
 
-For Cursor, ZCode, OpenCode, Claude Desktop and others, see [Connect your host](#connect-your-host).
+See [Hosts](#hosts) for Codex, Cursor, ZCode, VS Code, OpenCode, Claude Desktop and others.
 
-**3. Check the state.** Have the agent call `status` once. Each provider shows up as `active`, `unconfigured` (the process saw no key) or `blocked`.
+**3. Check status.** Ask the agent to call `web_search_status`: it shows whether each provider is `active`, `unconfigured` (no credentials found), `disabled` (not in the chain) or `blocked`, plus where the config file is and whether it has errors.
 
 ## Providers
 
-| Provider | Env var | Priority | In default chain | Quota and billing | `include_domains` |
-| --- | --- | --- | --- | --- | --- |
-| Bocha | `BOCHA_API_KEY` | 1 | yes | local budget 1,000/month | not supported |
-| Zhipu | `ZHIPU_API_KEY` | 2 | no | ¥0.01 per request (GLM Coding Plan includes some) | single domain |
-| Tavily | `TAVILY_API_KEY` | 3 | yes | 1,000/month | native |
-| Baidu Qianfan | `QIANFAN_API_KEY` | 4 | no | 1,500/month free, pay-as-you-go beyond | native |
-| Brave | `BRAVE_API_KEY` | 5 | yes | local reference budget 1,000/month | single domain |
-| Serper | `SERPER_API_KEY` | 6 | no | one-time credits; local lifetime budget of 2,500 attempts | single domain |
-| Exa | `EXA_API_KEY` | 7 | yes | monthly credits; local budget 800 | native |
-| DuckDuckGo | none | 8 | yes | no key; subject to network and anti-bot limits | not supported |
+<!-- generated:providers -->
+| Provider | Variable | In default chain | Local budget | `include_domains` |
+| --- | --- | --- | --- | --- |
+| Bocha 博查 | `BOCHA_API_KEY` | yes | 1000/month, resets on day 1 | not supported |
+| Zhipu 智谱 | `ZHIPU_API_KEY` | no (opt-in, list it explicitly) | unlimited | one domain |
+| Tavily | `TAVILY_API_KEY` | yes | 1000/month, resets on day 2 | multiple domains |
+| Baidu Qianfan 百度千帆 | `QIANFAN_API_KEY` | no (opt-in, list it explicitly) | 1500/month, resets on day 1 | multiple domains |
+| Brave Search | `BRAVE_API_KEY` | yes | 1000/month, resets on day 15 | one domain |
+| Serper | `SERPER_API_KEY` | no (opt-in, list it explicitly) | 2500 in total | one domain |
+| Exa | `EXA_API_KEY` | yes | 800/month, resets on day 1 | multiple domains |
+| SearXNG (self-hosted) | `SEARXNG_URL` (instance URL) | yes | unlimited | one domain |
+| DuckDuckGo | none needed | yes | unlimited | one domain |
+<!-- /generated:providers -->
 
-- The default chain is Bocha → Tavily → Brave → Exa → DuckDuckGo. The three providers marked "no" are paid or one-time-credit, so **a key alone does not put them in the chain**; they need `enabled: true` in the config file (see [Configuration](#configuration)). With everything on, the order is the priority column.
-- A "local budget" is the gateway's own conservative count, meant to send fewer requests. It is not an account balance and does not guarantee you stay inside a free tier. Pricing references (2026-10-04): [Brave](https://api-dashboard.search.brave.com/documentation/pricing)'s 1,000 is derived from its monthly credits; [Exa](https://exa.ai/pricing) resets credits monthly and 800 is just a retained local cap; Serper's credit tiers still need live verification, so no guessed cost multiplier is applied.
-- A provider that doesn't support `include_domains` (or doesn't support several domains) still runs the search, and `meta.note` says the filter was ignored.
+- The table is in default priority order and is generated from the provider registry by `npm run plugin:sync`. The default chain contains only providers marked "yes" whose credentials are configured.
+- Zhipu, Qianfan and Serper are paid or one-off credits: **a key alone does not add them to the chain**; list them in `SEARCH_FAILOVER_PROVIDERS` or in the config file's `providers` (see [Configuration](#configuration)).
+- "Local budget" is the gateway's own conservative counter to avoid unnecessary requests. It is not your account balance and does not guarantee staying within a free tier. Pricing references (2026-10-04): [Brave](https://api-dashboard.search.brave.com/documentation/pricing)'s 1,000 is derived from monthly credits; [Exa](https://exa.ai/pricing) resets credits monthly and 800 is only a local cap; Zhipu charges per call (included in the GLM Coding Plan); Qianfan has 1,500 free calls per month, then pay as you go; Serper uses one-off credits, tiered pricing not yet verified.
+- SearXNG needs a self-hosted instance with `json` added to `search.formats` in its `settings.yml`; otherwise the API returns 403.
+- DuckDuckGo works by scraping its HTML page: no key, but subject to anti-bot measures; unreachable from mainland China without a proxy.
 
 ## How it works
 
 ```text
-search(query)
- ├─ cache hit     → return, no upstream call
- └─ miss → try providers in priority order; skip those cooling down, over their local budget, or that can't be paced in time
-      Bocha    403 out of balance → blocked until recovery, next
-      Tavily   429 rate limit     → cooldown, next
-      Brave    results            → done, return results and fallback_chain
-      Exa / DuckDuckGo …          (never reached)
+web_search(query)
+ ├─ cache hit      → return immediately, no upstream request
+ └─ cache miss → try providers in priority order; skip those cooling down, out of local budget, or unable to get a rate-limit slot in time
+      Bocha    403 out of credit → blocked until recovery, next
+      Tavily   429 rate limited  → cooldown, next
+      Brave    results           → done, return results and fallback_chain
+      Exa / DuckDuckGo …         (never reached, never requested)
 ```
 
-The first non-empty result wins. Errors are never retried on the same provider: **moving to the next one is the retry**. Each provider keeps three things: blocked until when, why, and how many times in a row it has failed. It is let through again when the time is up, and that first request is the probe. No state machine, no circuit breaker.
+The first non-empty result wins. No error is retried on the same provider: **the next provider is the retry**. Each provider tracks only three things: blocked until when, why, and how many consecutive failures; the block lifts automatically and the next request is the probe.
 
-How each kind of error is handled:
+With `include_domains`, providers that can apply the filter go first (multi-domain support, or single-domain support when one domain is given); providers that cannot are kept as a last resort.
 
-| Class | Typical signals | Handling |
+How each error class is handled:
+
+| Class | Typical signal | Handling |
 | --- | --- | --- |
-| `rate_limited` | 429; DuckDuckGo's anomaly page | Cool down for the time the upstream gives, else 60 s, capped at 1 h (6 h for DuckDuckGo) |
-| `quota_exhausted` | Bocha 403; Exa and Serper 402; Tavily 432/433; Brave 429 + `QUOTA_LIMITED`; Zhipu 429 + 1113 | Blocked until the recovery time the upstream gives, else `quota_retry_s` (default 6 h) |
-| `auth_failure` | 401; Brave 422 + `SUBSCRIPTION_TOKEN_INVALID` | Provider removed until restart |
-| `timeout` / `network` | Request timeout, connection failure | Cool down from 30 s, doubling per consecutive failure, capped at 1 h |
-| `server_error` | 5xx; unparseable response | Cool down from 60 s, doubling per consecutive failure, capped at 1 h |
-| `request_error` | 400/422 and other bad-parameter errors | Provider is not blocked; next provider |
-| `no_results` | A valid empty result | No penalty; next provider |
+| `rate_limited` | 429; DuckDuckGo anomaly page | Cool down for the upstream wait time, else 60 s, capped at 1 h (6 h for DuckDuckGo) |
+| `quota_exhausted` | Bocha 403; Exa, Serper 402; Tavily 432/433; Brave 429 + `QUOTA_LIMITED`; Zhipu 429 + 1113 | Block until the upstream recovery time; otherwise wait `quota_retry_s` (default 6 h) |
+| `auth_failure` | 401; Brave 422 + `SUBSCRIPTION_TOKEN_INVALID` | Remove the provider until restart |
+| `timeout` / `network` | Timeout, connection failure (`detail` carries the real cause: ENOTFOUND, ECONNREFUSED, certificate errors…) | Cool down from 30 s, doubling on consecutive failures, capped at 1 h |
+| `server_error` | 5xx; unparsable response; every SearXNG engine failed | Cool down from 60 s, doubling, capped at 1 h |
+| `request_error` | 400/422 parameter errors | Do not block, move on |
+| `no_results` | Valid empty result (Bocha and Brave omit their result field when there are no results; that counts as empty too) | No penalty, move on |
 
-- **Total budget.** A whole search takes at most 30 s, and a single provider at most 10 s. When the budget runs out the chain records `skipped:budget_exhausted`; that is not counted against any provider, and not every provider is guaranteed a turn. When the host cancels a request, the in-flight request is aborted and no further fallback happens.
-- **Two clocks that don't interfere.** If the upstream gives a recovery time it is used, otherwise the gateway waits `quota_retry_s`. The local `reset_day` only governs the local counter and is never used to guess when the upstream recovers. A finished cooldown only means the next search may try the provider again; nothing probes in the background, and that attempt must still pass the local budget check.
-- **Local request budget.** Each approved upstream attempt counts once, including upstream errors and cancellation after approval; cache hits and cancellation while queued do not. Once the count reaches `quota.limit`, the provider is recorded as `skipped:quota_local` for that search and no request is sent. `monthly` resets at the local-time `reset_day`; `one_time` accumulates for the life of the process. The check and the count happen in one synchronous step, so concurrent requests cannot overshoot.
+- **Total budget.** A search takes at most 30 s, each provider at most 10 s. Providers never reached are recorded as `skipped:budget_exhausted`; a provider that was requested but outlasted the total budget is recorded as `budget_exhausted`. Neither counts against the provider. When the host cancels, in-flight requests are aborted and failover stops.
+- **Two independent clocks.** An upstream recovery time is used when given, otherwise `quota_retry_s`; the local `reset_day` only resets the local counter. When a cooldown ends, the next search may try again; the gateway never probes in the background.
+- **Local request budget.** Every approved upstream request counts, including upstream errors and cancellation after approval; cache hits and cancellation while queued do not. When the count reaches `quota.limit`, the provider is recorded as `skipped:quota_local`. `monthly` resets by local time zone and `reset_day`; `one_time` accumulates for the process lifetime. The check and the increment happen in one synchronous step, so concurrent requests cannot overshoot.
 
 <details>
-<summary>Cache and fetching</summary>
+<summary>Caching and fetch size</summary>
 
-- The cache key is made of the normalized query (case and extra whitespace ignored), `max_results`, `freshness` and `include_domains`. The default TTL is 1 hour, 15 minutes for `freshness=day`; adjust with `cache.ttl_s` / `cache.ttl_fresh_s`.
-- A forced `provider`, `use_cache=false` or a globally disabled cache bypasses both reads and writes. A cache hit keeps the winning provider's degradation notes.
-- Every provider fetches `min(max_results, provider maximum)` results, with no prefetching. Different counts are cached separately, non-empty short results are cached too, and no extra request is made to fill a short result.
-- `freshness` is carried out by each provider, so date semantics and granularity can differ. Qianfan ignores `day` and says so in `note`.
+- The cache key is the normalized query (case and extra whitespace ignored), `max_results`, `freshness` and `include_domains`. Default TTL is 1 hour, 15 minutes for `freshness=day`; tune with `cache.ttl_s` / `cache.ttl_fresh_s`.
+- `use_cache=false` or a disabled cache skips both reads and writes. Cache hits restate the winning provider's degradation notes.
+- Each provider fetches `min(max_results, provider limit)`, no prefetch. Different counts are cached separately; short non-empty results are cached too.
+- `freshness` is applied by each provider with its own date semantics; Qianfan ignores `day` and says so in `note`.
 
 </details>
 
-## Connect your host
+## Hosts
 
 | Host | How |
 | --- | --- |
+| Claude Code | `claude mcp add`, or `.mcp.json` |
 | Codex | Plugin marketplace, or `codex mcp add` |
-| ZCode | Plugin marketplace, or a hand-written MCP config |
-| Cursor | MCP config (the official marketplace submission is still in review) |
-| OpenCode | MCP config (written from the official docs, not yet verified in the client) |
-| Claude Desktop, Claude Code and others | The generic `mcpServers` config |
+| Cursor | MCP config (official marketplace listing under review) |
+| ZCode | Plugin marketplace, or MCP config |
+| VS Code (Copilot) | `.vscode/mcp.json` |
+| OpenCode | MCP config (written from the official docs, not yet tested in the client) |
+| Claude Desktop, Windsurf, Cline, Cherry Studio, … | Generic `mcpServers` config |
+| Platforms that only support remote MCP (web clients, Dify / n8n style workflow tools) | [HTTP mode](#http-mode-remote-platforms) |
 
-This repo ships an [Agent Plugins 1.0](https://agent-plugins.org) package (see `plugin/`), with marketplace catalogs for Codex / Cursor / ZCode at the repo root.
+The repository is packaged per [Agent Plugins 1.0](https://agent-plugins.org) (see `plugin/`); marketplace manifests for Codex / Cursor / ZCode live at the repository root.
 
 > [!IMPORTANT]
-> **Keys and opt-in providers are two different things:**
-> - API keys always come in through the **host process's environment variables** (names in [Providers](#providers)). `export` them before starting the host, or put them in the host config's `env` field.
-> - **A key alone does not put a provider in the chain.** Zhipu, Qianfan and Serper need an explicit `enabled: true` in `search-failover.json`. With only a key and no config change they show as `disabled` in `status`.
-> - As a plugin, the process cwd is a plugin cache directory, so `SEARCH_FAILOVER_CONFIG` must be an **absolute path**.
+> **Things that apply to every host:**
+> - **Put credentials wherever is convenient; the user-level config file is recommended.** Environment variables win, then `credentials` in `~/.config/search-failover/config.json`, so host configs need no keys.
+> - **GUI hosts launched from the Dock or Start menu (e.g. Claude Desktop) do not see variables exported in your shell**, and often cannot find an `npx` installed through nvm, Volta or fnm. On `spawn npx ENOENT`, use the absolute path of `npx` (`which npx`) as `command` and keep credentials in the config file.
+> - **Windows:** if the host cannot find `npx`, use `"command": "cmd"` and prepend `"/c", "npx"` to `args`.
+> - **A key alone does not enable a provider.** Zhipu, Qianfan and Serper must be listed in `SEARCH_FAILOVER_PROVIDERS` or in the config file's `providers`.
+> - `${...}` templates a host did not expand are treated as unset and reported in `config.warnings` of `web_search_status`.
+
+<details>
+<summary>Claude Code</summary>
+
+```bash
+claude mcp add search-failover -- npx -y search-failover
+# credentials or provider order for this host only:
+claude mcp add search-failover -e TAVILY_API_KEY=... -e SEARCH_FAILOVER_PROVIDERS=tavily,brave,duckduckgo -- npx -y search-failover
+```
+
+Add `--scope user` to enable it for all projects. To use HTTP mode: `claude mcp add --transport http search-failover http://127.0.0.1:8787/mcp --header "Authorization: Bearer <token>"`.
+
+</details>
 
 <details>
 <summary>Codex</summary>
@@ -165,60 +195,30 @@ This repo ships an [Agent Plugins 1.0](https://agent-plugins.org) package (see `
 codex plugin marketplace add crisweb1994/search-failover
 ```
 
-Then install search-failover from the plugin directory in the ChatGPT desktop app / Codex. For local development you can add the repo path directly: `codex plugin marketplace add ./search-failover`.
+Then install search-failover from the plugin directory in the ChatGPT desktop app / Codex. Put credentials in the user-level config file.
 
-**MCP config**, one command:
+**MCP config**:
 
 ```bash
 codex mcp add search-failover -- npx -y search-failover
 ```
 
-Or `~/.codex/config.toml` (project-scoped `.codex/config.toml`):
+Or edit `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.search-failover]
 command = "npx"
 args = ["-y", "search-failover"]
-startup_timeout_sec = 30   # an npx cold start can exceed the 10s default
+startup_timeout_sec = 30   # the first npx download can exceed the 10 s default
 
 [mcp_servers.search-failover.env]
-BOCHA_API_KEY = "..."
 TAVILY_API_KEY = "..."
 ```
 
 </details>
 
 <details>
-<summary>ZCode</summary>
-
-**Plugin marketplace**: Discover → `+` → paste `https://github.com/crisweb1994/search-failover` (or a local repo path) → install search-failover. Afterwards you can fill in `config_path` (absolute path to search-failover.json, optional; leave it empty for built-in defaults) in the plugin's config panel.
-
-**MCP config**: user-level `~/.zcode/cli/config.json` (project-level `<repo>/.zcode/config.json`). Note the nested `mcp.servers`:
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "search-failover": {
-        "type": "stdio",
-        "command": "npx",
-        "args": ["-y", "search-failover"],
-        "env": { "BOCHA_API_KEY": "..." },
-        "timeoutMs": 60000
-      }
-    }
-  }
-}
-```
-
-ZCode's MCP schema is strict: `command` must be a string (never an array), the env field must be named `env`, an unknown key silently drops the whole server, and `${...}` templates are not expanded in config files, so write literal values.
-
-</details>
-
-<details>
 <summary>Cursor</summary>
-
-Cursor supports both Agent Plugins and native Cursor plugins, and this repo carries both. The official marketplace submission is still in review; until then use the MCP config, or add the repo's root `.cursor-plugin/marketplace.json` as a local directory.
 
 Global `~/.cursor/mcp.json` or project `.cursor/mcp.json`:
 
@@ -229,7 +229,6 @@ Global `~/.cursor/mcp.json` or project `.cursor/mcp.json`:
       "command": "npx",
       "args": ["-y", "search-failover"],
       "env": {
-        "BOCHA_API_KEY": "${env:BOCHA_API_KEY}",
         "TAVILY_API_KEY": "${env:TAVILY_API_KEY}"
       }
     }
@@ -237,14 +236,59 @@ Global `~/.cursor/mcp.json` or project `.cursor/mcp.json`:
 }
 ```
 
-`${env:NAME}` is Cursor's variable interpolation, so keys stay in your shell environment instead of the config file. Delete the lines of providers you don't use.
+`${env:NAME}` is Cursor's variable interpolation, so keys stay in your shell environment. Drop the `env` block entirely when credentials live in the user-level config file. A native Cursor plugin manifest (`.cursor-plugin/`) is included and can be added locally until the official listing is approved.
+
+</details>
+
+<details>
+<summary>ZCode</summary>
+
+**Plugin marketplace**: Discover → `+` → paste `https://github.com/crisweb1994/search-failover` → install. The plugin's settings have two optional fields: `config_path` (absolute path of a config file; the user-level file is used by default) and `providers` (provider order, e.g. `bocha,tavily,duckduckgo`). Put credentials in the user-level config file.
+
+**MCP config**: user-level `~/.zcode/cli/config.json` (project-level `<repo>/.zcode/config.json`); note the nested `mcp.servers`:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "search-failover": {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "search-failover"],
+        "timeoutMs": 60000
+      }
+    }
+  }
+}
+```
+
+ZCode's MCP schema is strict: `command` must be a string, the environment field must be named `env`, a server with any unknown field is silently dropped, and `${...}` templates are not expanded.
+
+</details>
+
+<details>
+<summary>VS Code (Copilot)</summary>
+
+`.vscode/mcp.json` (the top-level key is `servers`):
+
+```json
+{
+  "servers": {
+    "search-failover": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "search-failover"]
+    }
+  }
+}
+```
 
 </details>
 
 <details>
 <summary>OpenCode</summary>
 
-There is no marketplace catalog, so use the MCP config. `opencode.json`:
+`opencode.json`:
 
 ```jsonc
 {
@@ -252,203 +296,224 @@ There is no marketplace catalog, so use the MCP config. `opencode.json`:
     "search-failover": {
       "type": "local",
       "command": ["npx", "-y", "search-failover"],
-      "environment": { "BOCHA_API_KEY": "..." }
+      "environment": { "TAVILY_API_KEY": "..." }
     }
   }
 }
 ```
 
-Unlike the other hosts, `command` is an **array** (command and arguments together) and the env field is named **`environment`**. This was written from the official OpenCode docs and has not been verified in the client.
+Unlike other hosts, `command` is an **array** and the environment field is **`environment`**. Written from the OpenCode docs; not yet tested in the client.
 
 </details>
 
 <details>
-<summary>Claude Desktop, Claude Code and others</summary>
+<summary>Claude Desktop, Windsurf, Cline, Cherry Studio, …</summary>
 
-For hosts that use the generic `mcpServers` format:
+Hosts using the generic `mcpServers` format:
 
 ```json
 {
   "mcpServers": {
     "search-failover": {
       "command": "npx",
-      "args": ["-y", "search-failover"],
-      "env": {
-        "BOCHA_API_KEY": "...",
-        "TAVILY_API_KEY": "..."
-      }
+      "args": ["-y", "search-failover"]
     }
   }
 }
 ```
 
-After a global install (`npm install -g search-failover`) you can point directly at the binary: `"command": "search-failover"`. To run from source, use `"command": "node"` with `args` pointing at the absolute path of `dist/index.js`.
+After a global install (`npm install -g search-failover`) you can use `"command": "search-failover"`. To run from source, use `"command": "node"` with the absolute path of `dist/index.js` in `args`.
 
 </details>
 
+### HTTP mode (remote platforms)
+
+```bash
+SEARCH_FAILOVER_HTTP_TOKEN=$(openssl rand -hex 24) npx -y search-failover --http --port 8787
+# MCP endpoint: http://127.0.0.1:8787/mcp   health check: /healthz
+```
+
+- Stateless Streamable HTTP: every request is handled independently and all clients share one set of quota counters, cooldowns and cache, so several hosts can use it without double counting.
+- Listens on `127.0.0.1` by default. Any other address (`--host 0.0.0.0`) requires `SEARCH_FAILOVER_HTTP_TOKEN`, otherwise the server refuses to start; put a public deployment behind an HTTPS reverse proxy.
+- Clients authenticate with `Authorization: Bearer <token>`. Platforms that only accept a URL can use `https://your.host/mcp?token=<token>`, but query strings may end up in proxy logs.
+- Without a token, only loopback Host / Origin values are accepted, so web pages cannot reach your local server through DNS rebinding.
+
 ## Configuration
 
-It runs fine without a config file. To adjust something, create a `search-failover.json`. Lookup order: the path in `SEARCH_FAILOVER_CONFIG` (must exist and be valid, otherwise startup fails) → a file of that name in the host's cwd → all defaults.
+Everything works without configuration. When you need to adjust, use either or both of:
 
-An example that turns the opt-in providers on. Once a config contains `providers` it **replaces the whole default chain**, so the example carries the default five along:
+**Environment variables** (every host supports them; good for simple setups):
+
+| Variable | Purpose |
+| --- | --- |
+| `BOCHA_API_KEY` etc. | Provider credentials, see [Providers](#providers) |
+| `SEARCH_FAILOVER_PROVIDERS` | The chain in priority order, comma separated, e.g. `tavily,brave,duckduckgo`; listed opt-in providers are enabled |
+| `SEARCH_FAILOVER_CONFIG` | Config file path; defaults to the user-level file |
+| `SEARCH_FAILOVER_HTTP_TOKEN` | Token for HTTP mode |
+| `SEARCH_FAILOVER_DEBUG=1` | Expose the debug parameter `provider` (query a single provider) to the model |
+| `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` | Outbound proxy, see [Network and proxy](#network-and-proxy) |
+| `LOG` | Log level: `error` / `warn` / `info` / `debug` (stderr; `debug` logs every failover step) |
+
+**Config file**: `SEARCH_FAILOVER_CONFIG` first (if set, the file must exist and be valid), otherwise the user-level file `$XDG_CONFIG_HOME/search-failover/config.json`, by default `~/.config/search-failover/config.json`, or `%APPDATA%\search-failover\config.json` on Windows. **The current directory is never read**: hosts start servers in different working directories, and a config file inside someone else's repository must not be able to enable paid providers on your behalf.
 
 ```json
 {
+  "credentials": {
+    "TAVILY_API_KEY": "...",
+    "ZHIPU_API_KEY": "...",
+    "SEARXNG_URL": "http://localhost:8080"
+  },
   "providers": [
-    { "name": "bocha" },
-    { "name": "zhipu", "enabled": true },
+    { "name": "zhipu" },
     { "name": "tavily" },
-    { "name": "qianfan", "enabled": true },
-    { "name": "brave" },
-    { "name": "serper", "enabled": true },
-    { "name": "exa" },
+    { "name": "brave", "quota": { "limit": 500 } },
+    { "name": "searxng" },
     { "name": "duckduckgo" }
   ]
 }
 ```
 
-Fields omitted from an entry inherit that provider's defaults (priority, pacing, quota, cooldown). Available fields:
+Rules:
+
+- **The order of `providers` is the priority**, and listing a provider enables it (`"enabled": false` disables it temporarily). Omit `providers` for the default chain; `[]` means an empty chain.
+- When `SEARCH_FAILOVER_PROVIDERS` is set, it decides the list and order; tuning fields for those providers in the config file still apply.
+- `credentials` keys are environment variable names; a set environment variable of the same name wins.
+- Omitted fields inherit the provider's defaults (rate limits, quota, cooldown). `quota` is merged field by field when the type is unchanged and replaced when the type changes, e.g. `{ "type": "unbounded" }` removes the local budget.
+- Unknown or duplicate provider names, unknown fields (including typos such as `limt` for `limit`) and invalid values are configuration errors. **On a configuration error the server still starts but runs no providers**: every search returns `config_error` with the location, also shown by `web_search_status`, so the cause is visible in any host's conversation.
+
+Fields:
 
 | Field | Meaning | Default |
 | --- | --- | --- |
-| `providers[].name` | Provider: `bocha` `zhipu` `tavily` `qianfan` `brave` `serper` `exa` `duckduckgo` | required |
-| `providers[].enabled` | Whether it joins the chain | `false` for opt-in providers, `true` for the rest |
-| `providers[].priority` | Order; lower numbers go first | the priority in [Providers](#providers) |
+| `providers[].name` | `bocha` `zhipu` `tavily` `qianfan` `brave` `serper` `exa` `searxng` `duckduckgo` | required |
+| `providers[].enabled` | `false` disables it temporarily | `true` |
 | `providers[].quota` | Local request budget: `type` (`monthly` / `one_time` / `unbounded`), `limit`, `reset_day` (1–31) | per provider, see [Providers](#providers) |
-| `providers[].quota_retry_s` | Seconds to wait after a quota error that carries no recovery time; `0` applies no such cooldown | `21600` |
-| `providers[].local_qps` / `min_interval_ms` | Local pacing | Brave, Qianfan and Serper default to 1 QPS; DuckDuckGo to a 2 s interval |
-| `providers[].cooldown_max_s` | Overrides this provider's cooldown cap | the global value; 21600 for DuckDuckGo |
+| `providers[].quota_retry_s` | Wait in seconds after a quota error without an upstream recovery time; `0` disables that cooldown | `21600` |
+| `providers[].local_qps` / `min_interval_ms` | Local rate limit | 1 QPS for Brave, Qianfan, Serper; 2 s interval for DuckDuckGo |
+| `providers[].cooldown_max_s` | Per-provider cooldown cap | global value; 21600 for DuckDuckGo |
+| `credentials.<ENV_NAME>` | Credential (key, or SearXNG instance URL) | – |
 | `defaults.timeout_ms` | Per-provider request timeout | `10000` |
-| `defaults.total_budget_ms` | Budget for a whole search | `30000` |
-| `defaults.cooldown_default_s` / `cooldown_max_s` | Default rate-limit cooldown / cooldown cap, in seconds | `60` / `3600` |
-| `cache.enabled` | Whether the cache is on | `true` |
-| `cache.ttl_s` / `ttl_fresh_s` | Cache TTLs; the latter applies to `freshness=day` | `3600` / `900` |
-| `cache.max_entries` | Cache size cap | `512` |
+| `defaults.total_budget_ms` | Total budget per search | `30000` |
+| `defaults.cooldown_default_s` / `cooldown_max_s` | Default rate-limit cooldown / cooldown cap (s) | `60` / `3600` |
+| `defaults.max_output_chars` | Total character budget for result text (`content`/`snippet`) per response | `12000` |
+| `cache.enabled` | Enable the cache | `true` |
+| `cache.ttl_s` / `ttl_fresh_s` | Cache TTL, the latter for `freshness=day` | `3600` / `900` |
+| `cache.max_entries` | Cache size limit | `512` |
 
-Rules:
+## Network and proxy
 
-- `providers: []` is an empty chain.
-- Unknown or duplicate provider names, unknown fields (including misspelled ones, such as `limt` for `limit`) and invalid numbers all fail at startup, with the path of the offending field.
-- `quota` fields merge when the type is unchanged; changing the type replaces them. For example, `quota: { "type": "unbounded" }` turns the local limit off.
+- With `HTTPS_PROXY` (or `HTTP_PROXY`) set, all outbound requests go through the proxy; `NO_PROXY` lists direct destinations as usual. When `NO_PROXY` is unset, `localhost`, `127.0.0.1` and `::1` stay direct so a local SearXNG keeps working. The proxy in use is shown by `web_search_status` (credentials redacted).
+- The gateway has to do this itself: Node's built-in fetch ignores these variables (still a direct connection on Node 22 with `HTTPS_PROXY` set).
+- **Mainland China:** DuckDuckGo is unreachable, so the zero-config setup needs a proxy there; Tavily, Brave and Exa often do too. Without a proxy, Bocha, Zhipu and Qianfan are domestic services, and a self-hosted SearXNG can serve as the keyless fallback.
 
-<details>
-<summary>Migrating from older versions</summary>
+## Tools and results
 
-`quota` now describes only the local request budget. The wait after an upstream quota error is the provider-level `quota_retry_s`: `{ "name": "bocha", "quota_retry_s": 600 }` waits 10 minutes when the upstream supplies no recovery time, and the next search may then try again.
+### `web_search`
 
-These legacy fields are still accepted and validated against their original ranges:
-
-- `quota.quota_retry_s` is promoted to the provider level. An explicit top-level value wins, and invalid legacy values still fail.
-- `provider.fetch_policy` and `cache.store_size` are ignored and no longer control fetching or cache writes.
-
-They produce no notice, and config files are never rewritten. Any other unknown field is an error.
-
-Behavior changes: different counts no longer share a cache entry, which may increase upstream requests; with a small legacy `store_size` a search may now fetch more results per request; and the fixed recovery interval means a provider that is still out of balance gets tried periodically. Actual cost depends on provider billing and your usage, and is not promised to be lower than before.
-
-</details>
-
-## Tools and responses
-
-### `search`
-
-| Parameter | Default | Notes |
+| Parameter | Default | Description |
 | --- | --- | --- |
-| `query` | required | Search terms. The gateway truncates at 400 chars; Zhipu and Qianfan truncate more strictly and say so in `note` |
-| `max_results` | 8 | 1–20 |
+| `query` | required | Search query. Truncated to 400 characters; Zhipu and Qianfan truncate further and say so in `note` |
+| `max_results` | 8 | 1–20; out-of-range values and numeric strings are adjusted automatically |
 | `freshness` | – | `day` / `week` / `month` / `year` |
-| `include_domains` | – | Only return results from these domains; support per provider is in [Providers](#providers) |
-| `provider` | – | Force a single provider (for debugging) |
-| `use_cache` | true | Whether to read and write the cache |
+| `include_domains` | – | Only return results from these hostnames; forms like `https://docs.rs/x`, `site:docs.rs` and `*.docs.rs` are normalized to `docs.rs` |
+| `use_cache` | true | Read and write the cache |
 
-It returns `results[]` and `meta`. Every result has `title` and `url`. The text is in `content` when the provider returns a longer summary, otherwise in `snippet`; the two never appear together, and both may be missing. `meta` holds `provider_used`, the full `fallback_chain`, `cache_hit`, `elapsed_ms` and an optional `note`.
+The debug parameter `provider` (query a single provider) only appears with `SEARCH_FAILOVER_DEBUG=1`. The tool description is generated from the providers currently available.
+
+Returns `results[]` and `meta`. Every result has `title` and `url`; the text is in `content` (when the source gives a longer extract) or `snippet` (short summary only), never both, sometimes neither. When the combined text exceeds `defaults.max_output_chars`, longer entries are shortened proportionally and `note` says so (hosts generally cap tool output, e.g. 25k tokens by default in Claude Code). `meta` contains `provider_used`, the full `fallback_chain`, `cache_hit`, `elapsed_ms` and an optional `note`.
 
 Reading `fallback_chain`:
 
 | outcome | Meaning |
 | --- | --- |
-| `no_results` | This provider answered normally with an empty result |
-| `rate_limited` `quota_exhausted` `auth_failure` `timeout` `network` `server_error` `request_error` | This provider failed; handling is in [How it works](#how-it-works) |
-| `skipped:<reason>` | This provider was not asked this time. Reasons: still cooling down (`rate_limited` and so on; for `auth_failure` the detail is `until_restart`), `quota_local` (local budget spent), `local_rate` (pacing couldn't fit), `budget_exhausted` (total budget spent) |
+| `no_results` | The provider returned a valid empty result |
+| `rate_limited` `quota_exhausted` `auth_failure` `timeout` `network` `server_error` `request_error` | The provider failed; handling in [How it works](#how-it-works) |
+| `budget_exhausted` | The request was sent, but the search's total budget ran out first |
+| `skipped:<reason>` | The provider was not requested this time: still cooling down (`auth_failure` has detail `until_restart`), `quota_local` (local budget used up), `local_rate` (no rate-limit slot in time), `budget_exhausted` (total budget already used) |
+| `config_error` / `no_provider` / `internal_error` (provider `gateway`) | Configuration error / no available provider / gateway bug |
 
-How an empty result is judged: a non-empty chain made only of `no_results` is a normal empty search. Any failure or skip, or having no runnable provider at all, makes the MCP result `isError: true`.
+Empty results: a non-empty chain made entirely of `no_results` is a normal empty search; any failure or skip, or no runnable provider, gives `isError: true`.
 
-### `status`
+### `web_search_status`
 
-Takes no arguments. Returns each provider's state, block reason and remaining time, failure streak, local usage (with a warning at 90%), and cache hit statistics. An excerpt:
+No arguments. Returns each provider's state, the environment variable that configures it, block reason and remaining time, consecutive failures, local usage (warning at 90%), plus the config file location and errors, proxy and cache statistics. Excerpt:
 
 ```jsonc
 {
+  "version": "0.4.0",
   "providers": [
-    { "name": "bocha", "state": "blocked(quota_exhausted, 剩21600s)", "used_requests": 1, "quota_profile": "monthly:1000@day1", "quota_warning": false },
-    { "name": "tavily", "state": "blocked(rate_limited, 剩60s)", "used_requests": 1, "quota_profile": "monthly:1000@day2", "quota_warning": false },
-    { "name": "brave", "state": "active", "used_requests": 1, "quota_profile": "monthly:1000@day15", "quota_warning": false },
-    { "name": "zhipu", "state": "unconfigured", "used_requests": 0, "quota_profile": "one_time", "quota_warning": false }
+    { "name": "bocha", "in_chain": true, "credential_env": "BOCHA_API_KEY", "state": "blocked(quota_exhausted, 21600s left)", "used_requests": 1, "quota_profile": "monthly:1000@day1" },
+    { "name": "tavily", "in_chain": true, "credential_env": "TAVILY_API_KEY", "state": "active", "used_requests": 1, "quota_profile": "monthly:1000@day2" },
+    { "name": "zhipu", "in_chain": false, "credential_env": "ZHIPU_API_KEY", "state": "unconfigured" }
     // …
   ],
+  "config": { "source": "/Users/me/.config/search-failover/config.json", "error": null, "warnings": [] },
+  "network": { "proxy": "http://127.0.0.1:7890" },
   "cache": { "entries": 1, "hits": 0, "misses": 1 },
-  "uptime_s": 0
+  "uptime_s": 42
 }
 ```
 
-`used_requests` is the number of approved upstream attempts; `used_this_month` is a compatibility alias with the same value. In `state`, `剩` means "remaining": `blocked(rate_limited, 剩60s)` has 60 s left on its cooldown.
-
 ### Troubleshooting
 
-| In `status` | Meaning | What to do |
+| In `web_search_status` | Meaning | What to do |
 | --- | --- | --- |
-| `unconfigured` | The process saw no environment variable for this provider | Check the host's `env` config, then restart the host |
-| `disabled` | A key is set, but this is an opt-in provider and the config lacks `enabled: true` | See [Configuration](#configuration) |
-| `disabled(auth_failure)` | The key was rejected upstream; the provider is removed until restart | Replace the key and restart the host |
-| `blocked(<reason>, 剩Ns)` | Cooling down | Wait, or look at `last_error` |
-| `blocked(quota_local)` | The local request budget is spent | Raise `quota.limit` or wait for the next period |
-| `active` | Usable | – |
+| `config.error` is set | The config file or an environment variable is invalid; no search runs | Fix the reported location, restart the host |
+| `config.warnings` mentions an unexpanded template | The host did not expand `${...}`; the value was ignored | Use the real value, or move it to the config file |
+| `unconfigured` | No credentials found for this provider (`credential_env`) | Set the environment variable or `credentials` in the config file, restart the host |
+| `disabled` | Credentials exist but the provider is not in the chain (opt-in providers are not by default) | Add it to `SEARCH_FAILOVER_PROVIDERS` or `providers` |
+| `disabled(auth_failure)` | The key was rejected; removed until restart | Replace the key, restart the host |
+| `blocked(<reason>, Ns left)` | Cooling down | Wait, or check `last_error` |
+| `blocked(quota_local)` | Local request budget used up | Raise `quota.limit`, or wait for the next period |
+| `active` | Available | – |
 
 ## Status and limitations
 
-- **State lives in process memory.** Counters, pacing, cooldowns and the cache reset on restart, are not shared between hosts, and do not include other applications' use of the same key. The local budget is a conservative request count, not an account balance.
-- **Identical concurrent queries are not merged.** Two identical requests arriving together each hit the upstream.
-- **Results from several providers are not merged.** The first non-empty result ends the search. This is a failover gateway, not a metasearch engine.
-- **The three opt-in providers have not been calibrated against real keys.** The contract tests for Zhipu, Qianfan and Serper use responses built from the official docs (or third-party accounts), and their error-code mapping comes mostly from the same sources; the real Qianfan API still awaits credentials. `scripts/probe.mts` exists to capture real responses. If you have a key, please run it and post the redacted output in an issue.
-- **DuckDuckGo is scraped from an HTML page.** It needs no key but is subject to network and anti-bot limits, and a page redesign can break it. An unrecognized page structure raises an error rather than being treated as an empty result.
-- **Host support.** The OpenCode config was written from its official docs and has not been verified in the client; Cursor's official plugin marketplace submission is still in review.
+- **State lives in process memory.** Counters, rate limits, cooldowns and cache reset on restart. In stdio mode each host runs its own process and nothing is shared; use HTTP mode to let several hosts share one process. Counters do not include usage of the same key by other applications.
+- **Concurrent identical queries are not coalesced.** Two identical requests arriving together each hit upstream once.
+- **Results from several providers are not merged.** The first non-empty result wins; this is a failover gateway, not a metasearch engine.
+- **Some providers are not yet calibrated with real keys.** Contract tests for Zhipu, Qianfan, Serper and SearXNG use responses built from official docs; the "no results" response shapes for Bocha and Brave are inferred from the official implementation and response model. `scripts/probe.mts` captures real responses (including a query that cannot match anything); if you have keys, please run it and post the redacted output in an issue.
+- **DuckDuckGo works by scraping HTML.** No key, but subject to network conditions and anti-bot measures; a page redesign can break it, and an unrecognized page structure is reported as an error, never as an empty result.
+- **Host compatibility.** The OpenCode and VS Code configs are written from official docs and not yet tested in those clients; the official Cursor marketplace listing is under review. HTTP mode is tested locally with the MCP SDK client but not yet against each platform.
 
-## Development and releases
+## Development and release
 
 ```bash
-npm run dev         # start locally via tsx
-npm test            # unit / contract / router integration / stdio e2e
+npm run dev         # run locally with tsx (stdio); add -- --http for HTTP mode
+npm test            # unit / contract / router integration / stdio and HTTP e2e
 npm run typecheck   # tsc --noEmit
-npm run build       # emit dist/
+npm run build       # esbuild single-file bundle at dist/index.js
+node scripts/runtime-smoke.mjs dist/index.js   # stdio smoke test of the build (mocked upstream)
 ```
 
-To run from source: `git clone`, then `npm install && npm run build`. Logging goes to stderr (`LOG=error|warn|info|debug`); stdout carries MCP protocol frames only.
+The repository's `.cursor/mcp.json` and `.zcode/config.json` point at the local build (run `npm run build` first), so opening the repo in Cursor / ZCode uses your working copy; ZCode needs the repository root as its working directory.
 
-Provider onboarding is probe-first: run `npx tsx scripts/probe.mts <provider>` with a real key, capture redacted snapshots of responses and error bodies into `test/fixtures/`, then calibrate the adapter's contract tests against them, rather than hand-writing fixtures from documentation. Zhipu, Qianfan and Serper have not completed this step yet; see the limitations above.
+Adding a provider: create an adapter in `src/providers/` exporting a `definition` with its credential variable, defaults and capabilities, add one line to `src/providers/registry.ts`, write contract tests, then run `npm run plugin:sync` to regenerate the Cursor plugin variables and the provider tables above. The process is probe-first: `npx tsx scripts/probe.mts <provider>` captures redacted snapshots of a normal query, a query that cannot match anything, a bad key and out-of-range parameters with a real key, and the contract tests are calibrated against them.
 
-Plugin manifest validation and version sync: `npm run plugin:check` (structural validation, also run by `prepublishOnly`) and `npm run plugin:sync` (propagates the `package.json` version into the plugin manifests, the marketplace catalogs and the pinned npx version).
+Plugin manifests: `npm run plugin:check` (structure plus generated content up to date; run by `prepublishOnly`), `npm run plugin:sync` (sync versions and regenerate), `node scripts/plugin-sync.mjs --published` (also confirm the current version is on npm; run in CI).
 
-The release smoke test boots the real distributed package with the same command the plugin manifests use, then runs the full handshake, initialize → tools/list → status → a live search: `node scripts/smoke-stdio.mjs` (supports `--env KEY=V`, `--config /abs/path/search-failover.json`, and `--command node -- dist/index.js` for a local build).
+The release smoke test launches the real published package exactly as the plugins do and runs initialize → tools/list → status → a real search: `node scripts/smoke-stdio.mjs`, with `--env KEY=V`, `--config /abs/path/config.json`, `--command node -- dist/index.js` (local build).
 
 <details>
-<summary>Releasing (npm + plugin manifest sync)</summary>
+<summary>Release process (npm + plugin manifest sync)</summary>
 
-The npx version pinned in the marketplace catalogs must correspond to a package that exists on npm, so the order is fixed:
+Marketplaces read manifests from the default branch on GitHub, so the pinned npx version must already be installable: **publish first, then merge**.
 
 ```bash
-npm version <x.y.z> --no-git-tag-version   # 1. state the target version explicitly, don't rely on patch
-npm run plugin:sync                         # 2. sync 3 manifests, 3 marketplace catalogs, 3 pinned npx versions
-npm run plugin:check && npm test            # 3. validate (prepublishOnly runs it again)
-git add -A && git commit -m "release: <x.y.z>"   # 4. version bump and manifests must land in one commit
-# 5. tag / GitHub Release; CI publishes to npm
+git switch -c release/x.y.z
+npm version <x.y.z> --no-git-tag-version   # 1. set the target version explicitly
+npm run plugin:sync                         # 2. sync manifest versions and npx pins
+npm run plugin:check && npm test            # 3. verify
+git commit -am "release: x.y.z" && git push -u origin release/x.y.z
+# 4. on GitHub, create the tag and Release from the release branch; CI publishes to npm
+# 5. after publishing, open a PR to main; CI's --published check blocks unpublished versions
 ```
-
-There is a window of a few minutes between the Release and CI finishing the npm publish, during which the catalogs already point at the new version but npm can't install it yet. Don't announce the plugin update inside that window.
 
 </details>
 
 ## Feedback
 
-If a search API behaves oddly, please open an [issue](https://github.com/crisweb1994/search-failover/issues), ideally with the redacted response body; it can become a contract test as is.
+If a search API behaves unexpectedly, please open an [issue](https://github.com/crisweb1994/search-failover/issues), ideally with a redacted response body; it can become a contract test as is.
 
 ## License
 

@@ -1,14 +1,51 @@
 # Changelog
 
+本文件记录项目的所有显著变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
 ## [Unreleased]
 
+### 不兼容变更
+
+- 工具改名：`search` → `web_search`，`status` → `web_search_status`，避免在不做命名空间的宿主里和其他 server 的同名工具冲突。
+- 不再读取当前目录下的 `search-failover.json`。配置文件改为 `SEARCH_FAILOVER_CONFIG` 指定的路径，或用户级 `~/.config/search-failover/config.json`（`$XDG_CONFIG_HOME` 优先，Windows 为 `%APPDATA%`）。此前宿主以某个仓库为工作目录启动时，仓库里的配置文件可以替用户打开付费来源。
+- `providers` 的数组顺序就是优先级，`priority` 字段移除；列出即启用（包括可选源），`enabled: false` 可以暂时停用。
+- 移除废弃字段 `fetch_policy`、`cache.store_size`、`quota.quota_retry_s` 和 status 的 `used_this_month` 别名（尚无存量用户），写了会按未知字段报错。
+- 配置错误不再让进程退出：网关照常启动但不运行任何来源，每次搜索都返回 `config_error` 和出错位置，`web_search_status` 里也能看到。此前宿主那边只能看到连接断开。
+- 已经发出请求、但总预算先用完的来源记为 `budget_exhausted`；`skipped:` 前缀只表示这次没有请求。
+- 工具描述、参数说明、降级说明和日志改为英文；工具描述按实际运行链生成，不再列出未配置的来源。
+- 调试参数 `provider` 只在 `SEARCH_FAILOVER_DEBUG=1` 时出现。
+
+### 新增
+
+- Streamable HTTP 模式：`--http [--host 127.0.0.1] [--port 8787]`，无状态，所有客户端共享额度计数、冷却和缓存。监听非本机地址必须设置 `SEARCH_FAILOVER_HTTP_TOKEN`；token 可以放在 `Authorization` 头或 `?token=` 里；不设 token 时只接受本机的 Host / Origin，防 DNS rebinding。
+- SearXNG 来源（`SEARXNG_URL`，自建实例，免 key），在默认链中排在 DuckDuckGo 之前。
+- `SEARCH_FAILOVER_PROVIDERS` 环境变量：只用环境变量就能指定运行链和顺序。
+- 配置文件的 `credentials` 段：以环境变量名为键，所有宿主共用一份凭据；同名环境变量优先。
+- 出站代理：读取 `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`（Node 自带的 fetch 不读这些变量），本机地址默认直连。
+- server `instructions`、工具 `title` 和只读 `annotations`。
+- 输出总量预算 `defaults.max_output_chars`（默认 12000 字符）：超出时按比例缩短较长的正文，并在 `note` 里说明。
+- `web_search_status` 增加 `in_chain`、`credential_env`、配置文件位置与错误、未展开模板的告警、代理和版本号；命令行增加 `--version` / `--help`。
+- 输入归一化：`include_domains` 接受 URL、`site:`、`*.` 写法和单个字符串；`max_results` 接受数字字符串并截到 1–20；`freshness` 忽略大小写。
+
+### 修复
+
+- 博查没有结果时省略 `webPages`（官方 MCP 同样按"无结果"处理），此前被判成 `server_error` 并逐次加长冷却；Brave 没有 `web` 字段时同理。
+- 带 `include_domains` 时先试能执行过滤的来源；降级说明只来自最终给出结果的那一家，此前失败来源的说明会留在结果里，同一查询命中缓存时又会消失。DuckDuckGo 支持单域名过滤（`site:`）。
+- 宿主没展开的 `${...}` 模板和空值视为未设置，此前会被当成 key，401 后来源被摘除，提示还指向"key 被拒绝"。
+- 网络错误的 detail 带上真实原因（ENOTFOUND、ECONNREFUSED、证书错误等），此前只有 "fetch failed"。
 - key 无效而被摘除的来源，后续搜索的跳过原因由 `9007199254741s` 改为 `until_restart`。
-- 结果正文只出现在一个字段：来源给出 `content` 时不再重复返回由它截取的前 300 字 `snippet`，只有短摘要的来源仍返回 `snippet`。按 8 条满长度结果估算，输出约少 13% 字符（未折算 token）。同时，全空白的正文视同缺失，不再挤掉来源自带的短摘要。
-- 配置文件中的未知字段（包括拼错的字段名，如 `enabeld`、`cahce`、`limt`）现在启动即报错并指出位置，不再被静默忽略。此前把 `quota.limit` 拼错，会让付费来源的本地上限悄悄失效。已废弃的 `fetch_policy`、`cache.store_size`、`quota.quota_retry_s` 仍被接受。
-- 上游配额错误的恢复规则与本地请求预算解耦：有效未来恢复时间优先，否则使用 provider 顶层 quota_retry_s（默认 6 小时），不再按本地 reset_day 推算。
-- 所有来源统一按 max_results 按需取数；条数纳入缓存 key，非空短结果可缓存，输出与缓存均限制在请求条数内。
-- 旧 quota.quota_retry_s 在配置入口提升到顶层；fetch_policy 与 cache.store_size 继续验证但已忽略，运行时删除预取策略和取满才缓存的分支。
-- 不同条数分别缓存，可能增加请求次数；旧 store_size 较小时单次取数可能增加。实际成本收益尚未经真实供应商验证。
+- 智谱没有错误体时 detail 不再出现 `NaN`。
+
+### 变更
+
+- 发布包改为 esbuild 打出的单个文件，没有运行时依赖（此前约 100 个依赖包）：`npx` 冷启动更快，安装结果也不会随依赖更新漂移。
+- 来源的凭据变量、默认值和能力集中在各 adapter 的 `definition` 里；Cursor 插件变量和 README 来源表格由 `npm run plugin:sync` 从注册表生成。ZCode 插件增加 `providers` 配置项。
+- 发布流程改为先从发布分支发布到 npm、再合并到 main；CI 用 `plugin-sync --published` 拦住指向未发布版本的清单（0.3.0 曾在 main 上指向 npm 上不存在的版本）。CI 增加 Windows / macOS 的构建产物冒烟。
+- 结果正文只出现在一个字段：来源给出 `content` 时不再重复返回由它截取的前 300 字 `snippet`，只有短摘要的来源仍返回 `snippet`。全空白的正文视同缺失。
+- 上游配额错误的恢复规则与本地请求预算解耦：有效的未来恢复时间优先，否则使用 `quota_retry_s`（默认 6 小时），不再按本地 `reset_day` 推算。
+- 所有来源统一按 `max_results` 按需取数；条数纳入缓存 key，非空短结果也会缓存，可能增加上游请求次数。
+- probe 脚本覆盖全部来源，并增加一条必然无结果的查询，用来确认各家空结果的真实格式。
+- npm 包的 `files` 不再包含 `docs/`；过时的 `TECH_SIMPLIFICATION.md` 移出仓库。
 
 ## [0.4.0] — 2026-10-07
 
@@ -21,9 +58,9 @@
 - DDG 使用 htmlparser2 按条目解析摘要并过滤广告，未知结构报错；新增 PR/push CI 和最低 Node 打包产物 smoke。
 
 
-本文件记录项目的所有显著变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
-
 ## [0.3.0] — 2026-10-02
+
+> 0.3.0 没有发布到 npm，这些改动随 0.4.0 一起发布。
 
 ### Added
 
