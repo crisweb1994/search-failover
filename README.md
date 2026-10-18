@@ -490,24 +490,26 @@ node scripts/runtime-smoke.mjs dist/index.js   # 用构建产物跑一遍 stdio 
 
 接入新来源：在 `src/providers/` 新建 adapter，导出包含凭据变量、默认值和能力的 `definition`，在 `src/providers/registry.ts` 加一行，补契约测试，再跑 `npm run plugin:sync`：Cursor 插件变量和上面的来源表格会自动更新。流程是 probe-first：先 `npx tsx scripts/probe.mts <provider>` 用真实 key 采集正常、必然无结果、错误 key、越界参数四种响应的脱敏快照，再据此校准契约测试。
 
-插件清单：`npm run plugin:check`（结构校验 + 生成内容是否最新，`prepublishOnly` 会跑）、`npm run plugin:sync`（同步版本并重新生成）、`node scripts/plugin-sync.mjs --published`（额外确认 npm 上已有当前版本，CI 会跑）。
+插件清单：`npm run plugin:check`（结构、生成内容和锁定版本校验，`prepublishOnly` 会跑）、`npm run plugin:sync`（重新生成 Cursor 变量和来源表格）、`node scripts/plugin-sync.mjs --published`（确认清单锁定的版本在 npm 上已发布，CI 会跑）。清单锁定的版本由发布 workflow 自动更新，不需要手动改。
 
 发布冒烟按插件同款命令拉起真实分发包，跑完 initialize → tools/list → status → 真实搜索：`node scripts/smoke-stdio.mjs`，支持 `--env KEY=V`、`--config /绝对路径/config.json`、`--command node -- dist/index.js`（本地构建）。
 
 <details>
-<summary>发布流程（npm + 插件清单同步）</summary>
+<summary>发布流程（自动化）</summary>
 
-市场清单直接读 GitHub 默认分支，里面锁定的 npx 版本必须已经能装到，所以**先发布，再合并**：
+版本号由 [release-please](https://github.com/googleapis/release-please) 根据 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 决定，不再手动改版本：
 
-```bash
-git switch -c release/x.y.z
-npm version <x.y.z> --no-git-tag-version   # 1. 显式写目标版本
-npm run plugin:sync                         # 2. 同步清单版本与 npx 锁定版本
-npm run plugin:check && npm test            # 3. 校验
-git commit -am "release: x.y.z" && git push -u origin release/x.y.z
-# 4. 在 GitHub 上从 release 分支创建 tag 和 Release，CI 发布到 npm
-# 5. 发布成功后再开 PR 合并到 main；CI 的 --published 检查会拦住还没发布的版本
-```
+1. **提交规范。** PR 用 squash 合并，PR 标题就是进入 main 的提交信息，`PR title` workflow 会检查格式：`fix:` 升 patch，`feat:` 升 minor，`feat!:` 或正文里写 `BREAKING CHANGE:` 升 major（1.0 之前升 minor）。`docs:`、`chore:`、`ci:`、`test:` 等不触发发版。
+2. **发布 PR。** 每次合并到 main，release-please 会创建或更新一个 `chore: release x.y.z` PR，里面改好 `package.json`、lockfile 和 CHANGELOG。想发版时合并它。
+3. **自动发布。** 合并发布 PR 后，`Release` workflow 依次：打 tag 并创建 GitHub Release → 用 OIDC trusted publishing 发布到 npm → 确认 npm 上能装到后，运行 `plugin-sync --to x.y.z` 把插件清单锁定的版本回写到 main。
+
+市场清单直接读 GitHub 默认分支，所以清单里锁定的始终是"最新已发布版本"：它可以落后于 `package.json`（发布 PR 合并后、npm 发布完成前），但不能超前；CI 的 `--published` 检查和 `plugin:check` 会拦住违反这两条的改动。
+
+需要的仓库设置：
+
+- 合并方式只开 squash，默认提交信息用 PR 标题。
+- 建议配置 `RELEASE_TOKEN` secret（GitHub App token 或细粒度 PAT，需要 contents 和 pull requests 写权限）。默认 `GITHUB_TOKEN` 创建的发布 PR 和回写提交不会触发 CI；main 开了分支保护时，回写提交也需要这个 token 有推送权限。
+- npm Trusted Publisher 绑定的是 `release.yml` 和 `release` 环境，不要改 workflow 文件名。
 
 </details>
 

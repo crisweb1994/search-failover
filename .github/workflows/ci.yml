@@ -17,9 +17,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run plugin:check
-      # 市场清单直接读 main，锁定的 npx 版本必须已经能装到；发布分支本身不检查（先发布再合并）
+      # 市场清单直接读 main，锁定的 npx 版本必须已经能装到（由发布 workflow 在 npm 发布成功后更新）
       - name: Plugin manifests point to a published version
-        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
         run: node scripts/plugin-sync.mjs --published
       - run: npm run build
       - run: npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"

@@ -1,19 +1,46 @@
-name: Release to npm
+name: Release
 
+# release-please 根据 Conventional Commits 维护发布 PR（版本号 + CHANGELOG）；合并后打 tag、建 Release，
+# 再发布到 npm，发布成功后才把插件清单锁定的版本回写到 main，保证 main 上锁定的版本永远能装到。
 on:
-  release:
-    types: [published]
-  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  release-please:
     runs-on: ubuntu-latest
-    environment: release # must match the Environment field in npm Trusted Publisher config
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          # 默认 GITHUB_TOKEN 开的 PR 不会触发 CI；配置了 RELEASE_TOKEN（GitHub App token 或 PAT）就用它
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    environment: release # must match the Environment field in npm Trusted Publisher config (workflow file must stay release.yml)
     permissions:
       contents: read
       id-token: write # OIDC trusted publishing + npm provenance
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24 # npm@latest needs >=24.15; engines (>=20.10) unaffected
@@ -21,3 +48,37 @@ jobs:
       - run: npm install -g npm@latest # trusted publishing requires npm >= 11.5.1
       - run: npm ci
       - run: npm publish --provenance
+
+  sync-plugins:
+    needs: [release-please, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.release-please.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Wait until the version is installable from npm
+        run: |
+          for i in $(seq 1 30); do
+            [ "$(npm view "search-failover@$VERSION" version 2>/dev/null)" = "$VERSION" ] && exit 0
+            sleep 10
+          done
+          echo "search-failover@$VERSION is not visible on npm after 5 minutes" >&2
+          exit 1
+      - name: Point plugin manifests to the published version
+        run: |
+          node scripts/plugin-sync.mjs --to "$VERSION"
+          node scripts/plugin-sync.mjs --published
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(plugin): point plugin manifests to $VERSION"
+          git push origin HEAD:main

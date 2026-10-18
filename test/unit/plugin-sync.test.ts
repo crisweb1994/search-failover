@@ -58,8 +58,7 @@ it('结构错误：--check 与写模式都失败，文件保持原样', () => {
   } finally { write('README.md', readme); }
 }, 60000);
 
-it('漂移：--check 拒绝；写模式同步版本、重新生成 Cursor 变量与 README 表格，并保留宿主未知字段', () => {
-  const pkg = read('package.json'); pkg.version = '9.8.7'; write('package.json', pkg);
+it('漂移：--check 拒绝；写模式重新生成 Cursor 变量与 README 表格，并保留宿主未知字段', () => {
   const cursor = read('plugin/.cursor-plugin/plugin.json');
   cursor.extra = { keep: true };
   cursor.mcpServers['search-failover'].env = { KEY: '${UNDECLARED}' };
@@ -82,7 +81,21 @@ it('漂移：--check 拒绝；写模式同步版本、重新生成 Cursor 变量
     SEARCH_FAILOVER_PROVIDERS: '${PROVIDERS}', SEARCH_FAILOVER_CONFIG: '${CONFIG_PATH}',
   });
   expect(readText('README.en.md')).not.toContain('(stale)');
+}, 60000);
+
+it('版本：清单锁定已发布版本，可以落后于 package.json 但不能超前；--to 统一改写，锁定不一致时报错', () => {
+  const pinned = read('plugin/plugin.json').version;
+  const pkg = read('package.json'); pkg.version = '9.8.7'; write('package.json', pkg);
+  expect(run('--check').status).toBe(0); // 发布 PR 合并后、npm 发布前的状态
+  expect(run('--to', '9.8.8').status).toBe(1); // 超前于 package.json
+  expect(read('plugin/plugin.json').version).toBe(pinned);
+  expect(run('--to', 'latest').status).toBe(1);
+  expect(run('--to', '9.8.7').status).toBe(0);
+  expect(run('--check').status).toBe(0);
   for (const path of ['plugin/mcp.json', 'plugin/.cursor-plugin/plugin.json', 'plugin/.mcp.json']) {
     expect(read(path).mcpServers['search-failover'].args).toEqual(['-y', 'search-failover@9.8.7']);
   }
+  expect(read('marketplace.json').plugins[0].version).toBe('9.8.7');
+  const mcp = read('plugin/.mcp.json'); mcp.mcpServers['search-failover'].args[1] = 'search-failover@9.8.6'; write('plugin/.mcp.json', mcp);
+  expect(run('--check').status).toBe(1);
 }, 60000);

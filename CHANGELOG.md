@@ -1,8 +1,10 @@
 # Changelog
 
-本文件记录项目的所有显著变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+本文件记录项目的所有显著变更，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。从 0.5.0 起，版本条目由 [release-please](https://github.com/googleapis/release-please) 根据 Conventional Commits 自动生成（英文）；0.5.0 的升级说明和更早的版本是手写的。
 
-## [Unreleased]
+## 0.5.0 升级说明
+
+以下是 0.5.0 改动的详细说明，自动生成的版本条目见上方。
 
 ### 不兼容变更
 

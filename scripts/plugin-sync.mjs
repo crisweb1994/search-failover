@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 /**
- * 插件清单与文档同步。写模式：把 package.json 的版本写进清单和 npx 锁定版本，并从来源注册表生成
- * Cursor 插件的 variables/env 和 README 里的来源表格。--check 只校验不写；--published 额外确认
- * npm 上已有该版本（市场清单直接读 GitHub 默认分支，锁定的版本必须先能装到）。
- * 注册表是 TypeScript，经 tsx 加载；先 npm ci。
+ * 插件清单与文档同步。
+ * - 写模式：从来源注册表重新生成 Cursor 插件的 variables/env 和 README 里的来源表格。
+ * - --to <x.y.z>：把清单版本和 npx 锁定版本改成 x.y.z（发布 workflow 在 npm 发布成功后调用）。
+ * - --check：只校验不写；--published：再确认锁定的版本在 npm 上已经能装到。
+ * 清单锁定的是"最新已发布版本"，可以落后于 package.json（那是下一个要发的版本），但不能超前：
+ * 市场直接读 GitHub 默认分支，锁定的版本必须先能装到。注册表是 TypeScript，经 tsx 加载；先 npm ci。
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -16,7 +18,11 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rel = p => join(repoRoot, p);
 const published = process.argv.includes('--published');
 const checkOnly = published || process.argv.includes('--check');
+const toIndex = process.argv.indexOf('--to');
+const target = toIndex === -1 ? undefined : process.argv[toIndex + 1];
 const errors = [];
+if (toIndex !== -1 && !/^\d+\.\d+\.\d+$/.test(target ?? '')) errors.push(`--to 需要 x.y.z 形式的版本号，实际为 ${target ?? '(空)'}`);
+if (toIndex !== -1 && checkOnly) errors.push('--to 不能和 --check / --published 同时使用');
 const jsonPaths = [
   'package.json', 'plugin/plugin.json', 'plugin/mcp.json', 'plugin/.cursor-plugin/plugin.json',
   'plugin/.zcode-plugin/plugin.json', 'plugin/.mcp.json', '.agents/plugins/marketplace.json',
@@ -200,29 +206,35 @@ if (checkOnly) {
 }
 
 // ---------------------------------------------------------------- 版本
-const version = docs['package.json'].version;
+const packageVersion = docs['package.json'].version;
 const zcodeMarket = docs['marketplace.json'];
 const manifests = [docs['plugin/plugin.json'], cursorManifest, zcodeManifest, zcodeMarket.plugins[0]];
 const servers = [agentMcp, cursorManifest, zcodeMcp].map(serverOf);
-if (!checkOnly) {
-  for (const doc of manifests) doc.version = version;
-  for (const entry of servers) entry.args[1] = `search-failover@${version}`;
+if (target) {
+  for (const doc of manifests) doc.version = target;
+  for (const entry of servers) entry.args[1] = `search-failover@${target}`;
 }
-for (const path of ['plugin/plugin.json', 'plugin/.cursor-plugin/plugin.json', 'plugin/.zcode-plugin/plugin.json', 'marketplace.json']) {
+const pinned = docs['plugin/plugin.json'].version;
+for (const path of ['plugin/.cursor-plugin/plugin.json', 'plugin/.zcode-plugin/plugin.json', 'marketplace.json']) {
   const actual = path === 'marketplace.json' ? zcodeMarket.plugins[0].version : docs[path].version;
-  if (actual !== version) errors.push(`${path}: version 必须与 package.json 的 ${version} 一致`);
+  if (actual !== pinned) errors.push(`${path}: version 必须与 plugin/plugin.json 的 ${pinned} 一致`);
 }
 for (const path of ['plugin/mcp.json', 'plugin/.cursor-plugin/plugin.json', 'plugin/.mcp.json']) {
-  if (serverOf(docs[path]).args[1] !== `search-failover@${version}`) errors.push(`${path}: npx 锁定版本必须为 ${version}`);
+  if (serverOf(docs[path]).args[1] !== `search-failover@${pinned}`) errors.push(`${path}: npx 锁定版本必须为 ${pinned}`);
+}
+const parts = v => String(v).split(/[.+-]/).slice(0, 3).map(Number);
+const compare = (a, b) => parts(a).reduce((acc, n, i) => acc || n - parts(b)[i], 0);
+if (compare(pinned, packageVersion) > 0) {
+  errors.push(`清单锁定的 ${pinned} 不能高于 package.json 的 ${packageVersion}`);
 }
 if (published) {
   try {
-    const found = execFileSync('npm', ['view', `search-failover@${version}`, 'version'], {
+    const found = execFileSync('npm', ['view', `search-failover@${pinned}`, 'version'], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32',
     }).trim();
-    if (found !== version) throw new Error(found || 'not found');
+    if (found !== pinned) throw new Error(found || 'not found');
   } catch {
-    errors.push(`npm 上还没有 search-failover@${version}：清单锁定的版本必须先发布（从发布分支打 tag 发布后再合并到 main）`);
+    errors.push(`npm 上没有 search-failover@${pinned}：清单只能锁定已发布的版本（由发布 workflow 在 npm 发布成功后更新）`);
   }
 }
 failIfErrors();
@@ -233,4 +245,4 @@ if (!checkOnly) {
   }
   for (const [path, content] of Object.entries(textOut)) writeFileSync(rel(path), content);
 }
-console.log(`✓ plugin ${checkOnly ? 'check' : 'sync'} 通过：清单×3、市场清单×3、Cursor 变量与 README 来源表格（${PROVIDERS.length} 个来源），版本 ${version}${published ? '，npm 已发布' : ''}`);
+console.log(`✓ plugin ${checkOnly ? 'check' : 'sync'} 通过：清单×3、市场清单×3、Cursor 变量与 README 来源表格（${PROVIDERS.length} 个来源），清单锁定 ${pinned}（package.json ${packageVersion}）${published ? '，npm 已发布' : ''}`);

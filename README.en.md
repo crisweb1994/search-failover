@@ -490,24 +490,26 @@ The repository's `.cursor/mcp.json` and `.zcode/config.json` point at the local 
 
 Adding a provider: create an adapter in `src/providers/` exporting a `definition` with its credential variable, defaults and capabilities, add one line to `src/providers/registry.ts`, write contract tests, then run `npm run plugin:sync` to regenerate the Cursor plugin variables and the provider tables above. The process is probe-first: `npx tsx scripts/probe.mts <provider>` captures redacted snapshots of a normal query, a query that cannot match anything, a bad key and out-of-range parameters with a real key, and the contract tests are calibrated against them.
 
-Plugin manifests: `npm run plugin:check` (structure plus generated content up to date; run by `prepublishOnly`), `npm run plugin:sync` (sync versions and regenerate), `node scripts/plugin-sync.mjs --published` (also confirm the current version is on npm; run in CI).
+Plugin manifests: `npm run plugin:check` (structure, generated content and pinned version; run by `prepublishOnly`), `npm run plugin:sync` (regenerate Cursor variables and provider tables), `node scripts/plugin-sync.mjs --published` (confirm the pinned version is published on npm; run in CI). The pinned version is updated by the release workflow; no manual edits needed.
 
 The release smoke test launches the real published package exactly as the plugins do and runs initialize → tools/list → status → a real search: `node scripts/smoke-stdio.mjs`, with `--env KEY=V`, `--config /abs/path/config.json`, `--command node -- dist/index.js` (local build).
 
 <details>
-<summary>Release process (npm + plugin manifest sync)</summary>
+<summary>Release process (automated)</summary>
 
-Marketplaces read manifests from the default branch on GitHub, so the pinned npx version must already be installable: **publish first, then merge**.
+Versions are decided by [release-please](https://github.com/googleapis/release-please) from [Conventional Commits](https://www.conventionalcommits.org/); nobody edits the version by hand:
 
-```bash
-git switch -c release/x.y.z
-npm version <x.y.z> --no-git-tag-version   # 1. set the target version explicitly
-npm run plugin:sync                         # 2. sync manifest versions and npx pins
-npm run plugin:check && npm test            # 3. verify
-git commit -am "release: x.y.z" && git push -u origin release/x.y.z
-# 4. on GitHub, create the tag and Release from the release branch; CI publishes to npm
-# 5. after publishing, open a PR to main; CI's --published check blocks unpublished versions
-```
+1. **Commit convention.** PRs are squash-merged, so the PR title becomes the commit on main; the `PR title` workflow checks its format. `fix:` bumps patch, `feat:` bumps minor, `feat!:` or a `BREAKING CHANGE:` footer bumps major (minor before 1.0). `docs:`, `chore:`, `ci:`, `test:` and similar do not trigger a release.
+2. **Release PR.** On every merge to main, release-please opens or updates a `chore: release x.y.z` PR that bumps `package.json`, the lockfile and the CHANGELOG. Merge it when you want to release.
+3. **Automatic publish.** After the release PR is merged, the `Release` workflow creates the tag and GitHub Release → publishes to npm with OIDC trusted publishing → waits until the version is installable, then runs `plugin-sync --to x.y.z` and pushes the plugin manifest pins to main.
+
+Marketplaces read manifests from the default branch, so the manifests always pin the latest *published* version: they may lag behind `package.json` (between merging the release PR and the npm publish finishing) but never run ahead. CI's `--published` check and `plugin:check` reject changes that break either rule.
+
+Repository settings needed:
+
+- Allow squash merging only, with the PR title as the default commit message.
+- Add a `RELEASE_TOKEN` secret (GitHub App token or fine-grained PAT with contents and pull-requests write access). Release PRs and commits created with the default `GITHUB_TOKEN` do not trigger CI, and if main is protected the token also needs permission to push the manifest commit.
+- npm Trusted Publisher is bound to `release.yml` and the `release` environment; do not rename the workflow file.
 
 </details>
 
