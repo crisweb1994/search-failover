@@ -17,12 +17,33 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run plugin:check
+      # 市场清单直接读 main，锁定的 npx 版本必须已经能装到；发布分支本身不检查（先发布再合并）
+      - name: Plugin manifests point to a published version
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+        run: node scripts/plugin-sync.mjs --published
       - run: npm run build
       - run: npm pack --ignore-scripts --pack-destination "$RUNNER_TEMP"
       - uses: actions/setup-node@v4
         with:
           node-version: 20.10.0
-      - name: Install packed production runtime
+      - name: Install packed package (no runtime dependencies)
         run: npm install --prefix "$RUNNER_TEMP/runtime" "$RUNNER_TEMP"/search-failover-*.tgz --omit=dev --ignore-scripts
       - name: Minimum Node stdio search smoke
         run: node scripts/runtime-smoke.mjs "$RUNNER_TEMP/runtime/node_modules/search-failover/dist/index.js"
+
+  # 构建产物在其他操作系统上的 stdio 冒烟（单文件、零依赖，直接跑 dist）
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/runtime-smoke.mjs dist/index.js
