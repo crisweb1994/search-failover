@@ -1,10 +1,9 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { tavily } from '../../src/providers/tavily.js';
 
 const server = useMsw();
-beforeAll(() => { process.env['TAVILY_API_KEY'] = 'test-key'; });
 
 const OK = {
   results: [
@@ -19,7 +18,7 @@ const OK = {
 };
 
 const call = (freshness?: 'day') =>
-  tavily.search({ query: 'q', maxResults: 8, freshness, useCache: false }, 20, AbortSignal.timeout(2000));
+  tavily.search({ query: 'q', maxResults: 8, freshness, useCache: false }, 20, AbortSignal.timeout(2000), 'test-key');
 
 describe('Tavily adapter 契约', () => {
   it('正常：content 原样返回且不重复给 snippet，score/published_date 透传', async () => {
@@ -40,7 +39,7 @@ describe('Tavily adapter 契约', () => {
     }));
     await tavily.search(
       { query: 'q', maxResults: 8, freshness: 'day', includeDomains: ['docs.rs'], useCache: false },
-      20, AbortSignal.timeout(2000));
+      20, AbortSignal.timeout(2000), 'test-key');
     expect(captured.time_range).toBe('day');
     expect(captured.include_domains).toEqual(['docs.rs']);
     expect(captured.search_depth).toBe('basic');
@@ -53,7 +52,7 @@ describe('Tavily adapter 契约', () => {
     expect(err.retryAfterMs).toBe(60_000);
   });
 
-  it('432 / 433 → quota_exhausted（resetAt 留空由 state 按月度重置点算）', async () => {
+  it('432 / 433 → quota_exhausted（resetAt 留空，由 state 按 quota_retry_s 等待）', async () => {
     for (const status of [432, 433]) {
       server.use(http.post('https://api.tavily.com/search', () =>
         new HttpResponse(JSON.stringify({ detail: 'Plan limit exceeded' }), { status })));

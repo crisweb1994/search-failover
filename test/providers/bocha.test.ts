@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { bocha } from '../../src/providers/bocha.js';
@@ -22,14 +22,17 @@ const OK_BODY = {
   },
 };
 
-beforeAll(() => { process.env['BOCHA_API_KEY'] = 'test-key'; });
-
-const call = () => bocha.search({ query: '测试', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(2000));
+const call = () => bocha.search({ query: '测试', maxResults: 8, useCache: false }, 20, AbortSignal.timeout(2000), 'test-key');
 
 describe('博查 adapter 契约', () => {
-  it('正常：解析 title/url/snippet/content/publishedDate', async () => {
-    server.use(http.post('https://api.bochaai.com/v1/web-search', () => HttpResponse.json(OK_BODY)));
+  it('正常：解析 title/url/snippet/content/publishedDate；凭据走 Bearer 头', async () => {
+    let auth = '';
+    server.use(http.post('https://api.bochaai.com/v1/web-search', ({ request }) => {
+      auth = request.headers.get('authorization') ?? '';
+      return HttpResponse.json(OK_BODY);
+    }));
     const results = await call();
+    expect(auth).toBe('Bearer test-key');
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({ title: '博查结果一', url: 'https://example.com/a', publishedDate: '2026-09-01' });
     expect(results[0]?.content).toContain('网页摘要');
@@ -45,6 +48,13 @@ describe('博查 adapter 契约', () => {
       const [result] = await call();
       expect(result?.snippet).toBe('短摘要');
       expect(result?.content).toBeUndefined();
+    }
+  });
+
+  it('没有结果时 data 里不带 webPages（Bing 兼容格式）→ 合法空结果，而不是 server_error', async () => {
+    for (const data of [{ _type: 'SearchResponse', queryContext: { originalQuery: 'x' } }, { webPages: null }]) {
+      server.use(http.post('https://api.bochaai.com/v1/web-search', () => HttpResponse.json({ code: 200, msg: null, data })));
+      expect(await call()).toEqual([]);
     }
   });
 

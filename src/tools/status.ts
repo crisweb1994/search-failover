@@ -1,49 +1,49 @@
-import { isConfigured } from '../credentials.js';
-import type { ResultCache } from '../cache.js';
-import type { GatewayState } from '../state.js';
 import type { ProviderCfg } from '../config.js';
-import type { ToolDeps } from './search.js';
+import { PROVIDER_NAMES, REGISTRY } from '../providers/registry.js';
+import type { Runtime } from '../runtime.js';
+import { VERSION } from '../version.js';
 
-function quotaProfile(p: { quota: { type: string; limit?: number; reset_day?: number } }): string {
-  if (p.quota.type === 'monthly') return `monthly:${p.quota.limit ?? '?'}@day${p.quota.reset_day ?? 1}`;
-  if (p.quota.type === 'one_time') return 'one_time';
+function quotaProfile(cfg: ProviderCfg): string {
+  if (cfg.quota.type === 'monthly') return `monthly:${cfg.quota.limit ?? '?'}@day${cfg.quota.reset_day ?? 1}`;
+  if (cfg.quota.type === 'one_time') return cfg.quota.limit === undefined ? 'one_time' : `one_time:${cfg.quota.limit}`;
   return 'unbounded';
 }
 
-export function makeStatusHandler(deps: ToolDeps) {
+/** 运行链里的来源按优先级在前，其余来源随后（状态为 disabled 或 unconfigured），配置一次就能看全 */
+export function makeStatusHandler(rt: Runtime) {
   return async () => {
-    const providers = deps.config.providers.map((cfg: ProviderCfg) => {
-      const configured = isConfigured(cfg.name);
-      const blocked = deps.state.checkBlocked(cfg.name);
-      let state: string;
-      if (!configured) state = 'unconfigured';
-      else if (!cfg.enabled) state = 'disabled'; // opt-in 源未开启（D14）
-      else if (blocked?.reason === 'auth_failure') state = 'disabled(auth_failure)';
-      else if (blocked) state = `blocked(${blocked.reason}, 剩${blocked.remainS}s)`;
-      else if (cfg.quota.type !== 'unbounded' && cfg.quota.limit !== undefined
-        && deps.state.used(cfg.name, cfg) >= cfg.quota.limit) state = 'blocked(quota_local)';
-      else state = 'active';
+    const chain = rt.config.providers.map(cfg => cfg.name);
+    const providers = [...chain, ...PROVIDER_NAMES.filter(name => !chain.includes(name))].map(name => {
+      const cfg = rt.config.providers.find(p => p.name === name);
+      const configured = rt.configured.has(name);
+      const base = { name, in_chain: cfg !== undefined, credential_env: REGISTRY[name]?.credentialEnv ?? undefined };
+      if (!cfg) return { ...base, state: configured ? 'disabled' : 'unconfigured' };
+      if (!configured) return { ...base, state: 'unconfigured' };
 
+      const blocked = rt.state.checkBlocked(name);
+      const used = rt.state.used(name, cfg);
+      let state = 'active';
+      if (blocked?.reason === 'auth_failure') state = 'disabled(auth_failure)';
+      else if (blocked) state = `blocked(${blocked.reason}, ${blocked.remainS}s left)`;
+      else if (cfg.quota.type !== 'unbounded' && cfg.quota.limit !== undefined && used >= cfg.quota.limit) state = 'blocked(quota_local)';
       return {
-        name: cfg.name,
+        ...base,
         state,
-        fail_streak: deps.state.failStreak(cfg.name),
-        used_requests: deps.state.used(cfg.name, cfg),
-        used_this_month: deps.state.used(cfg.name, cfg), // deprecated compatibility alias
+        fail_streak: rt.state.failStreak(name),
+        used_requests: used,
         quota_profile: quotaProfile(cfg),
-        quota_warning: deps.state.quotaWarning(cfg.name, cfg),
-        last_error: deps.state.lastError(cfg.name),
+        quota_warning: rt.state.quotaWarning(name, cfg),
+        last_error: rt.state.lastError(name),
       };
     });
 
     const payload = {
+      version: VERSION,
       providers,
-      cache: {
-        entries: deps.cache.size,
-        hits: deps.cache.hits,
-        misses: deps.cache.misses,
-      },
-      uptime_s: Math.floor((Date.now() - deps.state.startedAt) / 1000),
+      config: { source: rt.configSource ?? null, error: rt.configError ?? null, warnings: rt.warnings },
+      network: { proxy: rt.network.proxy ?? null },
+      cache: { entries: rt.cache.size, hits: rt.cache.hits, misses: rt.cache.misses },
+      uptime_s: Math.floor((Date.now() - rt.state.startedAt) / 1000),
     };
     return { content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }] };
   };

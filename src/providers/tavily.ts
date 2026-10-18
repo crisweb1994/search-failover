@@ -1,57 +1,51 @@
 import { z } from 'zod';
-import { apiKeyFor } from '../credentials.js';
-import { ProviderError, type RawResult } from '../types.js';
+import { ProviderError, type ProviderAdapter, type RawResult } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, parseRetryAfterMs, rawRequest, parseSuccess, truncateContent,
-  type HttpResponseInfo, type ProviderAdapter,
+  classifyDefault, optionalNumber, optionalString, parseRetryAfterMs, rawRequest, parseSuccess, truncateContent,
+  type HttpResponseInfo, type ProviderDefinition,
 } from './types.js';
 
 const itemSchema = z.object({
   title: z.string().min(1),
   url: z.string().min(1),
-  content: z.string().nullish().transform(v => v ?? undefined),
-  published_date: z.string().nullish().transform(v => v ?? undefined),
-  score: z.number().nullish().transform(v => v ?? undefined),
+  content: optionalString,
+  published_date: optionalString,
+  score: optionalNumber,
 });
 
 const ENDPOINT = 'https://api.tavily.com/search';
 
-/** Tavily：429+Retry-After=限速；432/433=套餐配额耗尽 */
+/** Tavily：429+Retry-After=限速；432/433=套餐 / 按量额度耗尽 */
 export const tavily: ProviderAdapter = {
   name: 'tavily',
   maxCount: 20,
-  async search(req, fetchCount, signal) {
+  includeDomains: 'native',
+  async search(req, fetchCount, signal, credential) {
     const body: Record<string, unknown> = {
       query: req.query,
       max_results: fetchCount,
       search_depth: 'basic',
       include_published_date: true,
     };
-    if (req.freshness) body['time_range'] = FRESHNESS.tavily[req.freshness];
+    // Tavily 的 time_range 取值与 freshness 同名
+    if (req.freshness) body['time_range'] = req.freshness;
     if (req.includeDomains?.length) body['include_domains'] = req.includeDomains;
 
     const res = await rawRequest(ENDPOINT, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKeyFor('tavily') ?? ''}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { Authorization: `Bearer ${credential ?? ''}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }, 'tavily', signal);
 
     if (res.status !== 200) throw classify(res);
     const json = parseSuccess(res.bodyText, z.object({ results: z.array(itemSchema) }), 'tavily');
-    const items = json.results;
-    return items.map((it): RawResult => {
-      const content = truncateContent(it.content);
-      return {
-        title: it.title,
-        url: it.url,
-        content,
-        score: typeof it.score === 'number' ? it.score : undefined,
-        publishedDate: it.published_date ?? undefined,
-      };
-    });
+    return json.results.map((it): RawResult => ({
+      title: it.title,
+      url: it.url,
+      content: truncateContent(it.content),
+      score: it.score,
+      publishedDate: it.published_date,
+    }));
   },
 };
 
@@ -66,3 +60,11 @@ function classify(res: HttpResponseInfo): ProviderError {
   }
   return classifyDefault(res, 'tavily');
 }
+
+export const definition: ProviderDefinition = {
+  adapter: tavily,
+  label: 'Tavily',
+  credentialEnv: 'TAVILY_API_KEY',
+  defaultEnabled: true,
+  quota: { type: 'monthly', limit: 1000, reset_day: 2 },
+};

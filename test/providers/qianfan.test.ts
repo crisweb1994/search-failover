@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { useMsw, expectProviderError } from '../helpers.js';
 import { qianfan } from '../../src/providers/qianfan.js';
@@ -8,7 +8,6 @@ import { qianfan } from '../../src/providers/qianfan.js';
  * https://cloud.baidu.com/doc/qianfan/s/2mh4su4uy （2026-10-04 核对）
  */
 const server = useMsw();
-beforeAll(() => { process.env['QIANFAN_API_KEY'] = 'test-key'; });
 
 const URL_API = 'https://qianfan.baidubce.com/v2/ai_search/web_search';
 
@@ -20,7 +19,7 @@ const OK = {
 };
 
 const call = (over: Record<string, unknown> = {}) =>
-  qianfan.search({ query: 'q', maxResults: 8, useCache: false, ...over } as never, 20, AbortSignal.timeout(2000));
+  qianfan.search({ query: 'q', maxResults: 8, useCache: false, ...over } as never, 20, AbortSignal.timeout(2000), 'test-key');
 
 describe('qianfan adapter 契约', () => {
   it('正常：title/url/content（有正文时不给 snippet）/rerank_score→score/date→publishedDate', async () => {
@@ -49,7 +48,7 @@ describe('qianfan adapter 契约', () => {
       body = await request.json();
       return HttpResponse.json(OK);
     }));
-    expect(qianfan.note?.({ query: '词'.repeat(40), maxResults: 8, useCache: false } as never)).toContain('已截断');
+    expect(qianfan.note?.({ query: '词'.repeat(40), maxResults: 8, useCache: false } as never)).toContain('query truncated to 72 units');
     expect(qianfan.note?.({ query: 'q', maxResults: 8, useCache: false } as never)).toBeUndefined();
 
     await call();
@@ -72,7 +71,7 @@ describe('qianfan adapter 契约', () => {
 
     await call({ freshness: 'day', includeDomains: ['a.com', 'b.com'] });
     expect(body['search_recency_filter']).toBeUndefined();
-    expect(qianfan.note?.({ query: 'q', maxResults: 8, useCache: false, freshness: 'day' })).toContain('已忽略');
+    expect(qianfan.note?.({ query: 'q', maxResults: 8, useCache: false, freshness: 'day' })).toContain('freshness=day is not supported');
     expect(body['search_filter']).toEqual({
       match: { site: ['a.com', 'b.com'] },
     });

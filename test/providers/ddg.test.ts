@@ -32,6 +32,17 @@ describe('DDG adapter 契约（限流=202 异常页，封禁=403/challenge）', 
     expect(results[1]).toMatchObject({ title: 'Result Two', url: 'https://example.org/b?x=1', snippet: 'Snippet two' });
   });
 
+  it('单域名过滤拼 site:，多域名不拼', async () => {
+    const bodies: string[] = [];
+    server.use(http.post('https://html.duckduckgo.com/html/', async ({ request }) => {
+      bodies.push(new URLSearchParams(await request.text()).get('q') ?? '');
+      return new HttpResponse(PAGE, { headers: { 'Content-Type': 'text/html' } });
+    }));
+    await duckduckgo.search({ query: 'tokio', maxResults: 8, useCache: false, includeDomains: ['docs.rs'] }, 20, AbortSignal.timeout(2000));
+    await duckduckgo.search({ query: 'tokio', maxResults: 8, useCache: false, includeDomains: ['a.com', 'b.com'] }, 20, AbortSignal.timeout(2000));
+    expect(bodies).toEqual(['site:docs.rs tokio', 'tokio']);
+  });
+
   it('明确 no-results 标记 → []', async () => {
     server.use(http.post('https://html.duckduckgo.com/html/', () =>
       new HttpResponse('<html><body><div class="no-results__message">No results found</div></body></html>', { headers: { 'Content-Type': 'text/html' } })));

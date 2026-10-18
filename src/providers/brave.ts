@@ -1,20 +1,29 @@
 import { z } from 'zod';
-import { apiKeyFor } from '../credentials.js';
-import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
+import { ProviderError, type Freshness, type ProviderAdapter, type RawResult } from '../types.js';
 import {
-  classifyDefault, FRESHNESS, parseRateLimitResetBuckets, rawRequest, safeJson, parseSuccess,
-  type HttpResponseInfo, type ProviderAdapter,
+  classifyDefault, optionalString, parseRateLimitResetBuckets, rawRequest, safeJson, parseSuccess,
+  type HttpResponseInfo, type ProviderDefinition,
 } from './types.js';
 
 const itemSchema = z.object({
   title: z.string().min(1),
   url: z.string().min(1),
-  description: z.string().nullish().transform(v => v ?? undefined),
-  page_age: z.string().nullish().transform(v => v ?? undefined),
-  age: z.string().nullish().transform(v => v ?? undefined),
+  description: optionalString,
+  page_age: optionalString,
+  age: optionalString,
 });
 
+/**
+ * Brave 的响应模型里 `web` 是可选字段，唯一必有的是 `type: "search"`：
+ * 有 `type` 而没有 `web` 就是没有网页结果；两者都没有才算异常响应。
+ */
+const responseSchema = z.object({
+  type: z.string().optional(),
+  web: z.object({ results: z.array(itemSchema) }).optional(),
+}).refine(v => v.web !== undefined || v.type === 'search');
+
 const ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
+const FRESHNESS: Record<Freshness, string> = { day: 'pd', week: 'pw', month: 'pm', year: 'py' };
 
 /**
  * Brave。三个反直觉信号：auth 是 422+SUBSCRIPTION_TOKEN_INVALID（不是 401）；
@@ -24,30 +33,20 @@ const ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
 export const brave: ProviderAdapter = {
   name: 'brave',
   maxCount: 20,
-  note(req: SearchRequest): string | undefined {
-    if (!req.includeDomains?.length) return undefined;
-    return req.includeDomains.length === 1
-      ? undefined // 单域名用 site: 前缀实现
-      : 'brave: 多域名过滤不支持（仅支持单域名 site:），已忽略';
-  },
-  async search(req, fetchCount, signal) {
-    let q = req.query;
-    if (req.includeDomains?.length === 1) q = `site:${req.includeDomains[0]} ${req.query}`;
+  includeDomains: 'single',
+  async search(req, fetchCount, signal, credential) {
+    const q = req.includeDomains?.length === 1 ? `site:${req.includeDomains[0]} ${req.query}` : req.query;
     const params = new URLSearchParams({ q, count: String(fetchCount) });
-    if (req.freshness) params.set('freshness', FRESHNESS.brave[req.freshness]);
+    if (req.freshness) params.set('freshness', FRESHNESS[req.freshness]);
 
     const res = await rawRequest(`${ENDPOINT}?${params.toString()}`, {
       method: 'GET',
-      headers: {
-        'X-Subscription-Token': apiKeyFor('brave') ?? '',
-        Accept: 'application/json',
-      },
+      headers: { 'X-Subscription-Token': credential ?? '', Accept: 'application/json' },
     }, 'brave', signal);
 
     if (res.status !== 200) throw classify(res);
-    const json = parseSuccess(res.bodyText, z.object({ web: z.object({ results: z.array(itemSchema) }) }), 'brave');
-    const items = json.web.results;
-    return items.map((it): RawResult => ({
+    const json = parseSuccess(res.bodyText, responseSchema, 'brave');
+    return (json.web?.results ?? []).map((it): RawResult => ({
       title: it.title,
       url: it.url,
       snippet: it.description || undefined,
@@ -62,7 +61,7 @@ function classify(res: HttpResponseInfo): ProviderError {
 
   if (res.status === 422) {
     if (code === 'SUBSCRIPTION_TOKEN_INVALID') return new ProviderError('brave', 'auth_failure', 'http_422 SUBSCRIPTION_TOKEN_INVALID');
-    return new ProviderError('brave', 'request_error', `http_422 ${code ?? ''}`);
+    return new ProviderError('brave', 'request_error', `http_422 ${code ?? ''}`.trim());
   }
   if (res.status === 429) {
     const buckets = parseRateLimitResetBuckets(res.headers);
@@ -91,3 +90,13 @@ export function parseAge(age: string | undefined): string | undefined {
   const ms = Number(m[1]) * (units[m[2]!.toLowerCase()] ?? 0);
   return new Date(Date.now() - ms).toISOString().slice(0, 10);
 }
+
+export const definition: ProviderDefinition = {
+  adapter: brave,
+  label: 'Brave Search',
+  credentialEnv: 'BRAVE_API_KEY',
+  defaultEnabled: true,
+  // 2026-10-04 api-dashboard.search.brave.com/documentation/pricing：月度 credits 折算参考，非余额。
+  quota: { type: 'monthly', limit: 1000, reset_day: 15 },
+  extraDefaults: { local_qps: 1 },
+};

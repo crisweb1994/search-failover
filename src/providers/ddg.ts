@@ -1,14 +1,15 @@
 import { parseDocument, DomUtils } from 'htmlparser2';
-import { ProviderError, type RawResult, type SearchRequest } from '../types.js';
-import { normalizeUrl } from '../router.js';
-import { classifyDefault, FRESHNESS, rawRequest, type ProviderAdapter } from './types.js';
+import { normalizeUrl } from '../url.js';
+import { ProviderError, type Freshness, type ProviderAdapter, type RawResult } from '../types.js';
+import { classifyDefault, rawRequest, type ProviderDefinition } from './types.js';
 
 const ENDPOINT = 'https://html.duckduckgo.com/html/';
 const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 const CHALLENGE_COOLDOWN_MS = 6 * 3600 * 1000; // 被封走该源 cooldown_max_s=6h 覆盖（配置默认值）
+const FRESHNESS: Record<Freshness, string> = { day: 'd', week: 'w', month: 'm', year: 'y' };
 
 /**
- * DuckDuckGo HTML 端点（无 key 兜底）。关键陷阱：限流不是 429 而是 HTTP 202+异常页，
+ * DuckDuckGo HTML 端点（无 key 兜底；国内网络无法直连，需要代理）。关键陷阱：限流不是 429 而是 HTTP 202+异常页，
  * 封禁是 403/challenge 页。challenge 判定必须是复合条件（解析出 0 条 且 含关键词）：
  * bodyText 含结果标题/摘要，单凭关键词会把搜 "challenge/captcha" 本身的正常结果页
  * 误判为封禁页，导致 DDG 被屏蔽 6 小时。
@@ -16,12 +17,11 @@ const CHALLENGE_COOLDOWN_MS = 6 * 3600 * 1000; // 被封走该源 cooldown_max_s
 export const duckduckgo: ProviderAdapter = {
   name: 'duckduckgo',
   maxCount: 20,
-  note(req: SearchRequest): string | undefined {
-    return req.includeDomains?.length ? 'duckduckgo: include_domains 不支持，已忽略' : undefined;
-  },
+  includeDomains: 'single',
   async search(req, fetchCount, signal) {
-    const params = new URLSearchParams({ q: req.query });
-    if (req.freshness) params.set('df', FRESHNESS.ddg[req.freshness]);
+    const q = req.includeDomains?.length === 1 ? `site:${req.includeDomains[0]} ${req.query}` : req.query;
+    const params = new URLSearchParams({ q });
+    if (req.freshness) params.set('df', FRESHNESS[req.freshness]);
 
     const res = await rawRequest(ENDPOINT, {
       method: 'POST',
@@ -94,3 +94,12 @@ function unwrapUddg(href: string): string | undefined {
     return undefined;
   }
 }
+
+export const definition: ProviderDefinition = {
+  adapter: duckduckgo,
+  label: 'DuckDuckGo',
+  credentialEnv: null,
+  defaultEnabled: true,
+  quota: { type: 'unbounded' },
+  extraDefaults: { cooldown_max_s: 21600, min_interval_ms: 2000 },
+};

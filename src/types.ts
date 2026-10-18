@@ -1,11 +1,12 @@
 export type Freshness = 'day' | 'week' | 'month' | 'year';
 
-/** search 工具归一化入参（v1.2.1：6 参数） */
+/** web_search 归一化入参 */
 export interface SearchRequest {
   query: string;
   maxResults: number;
   freshness?: Freshness;
   includeDomains?: string[];
+  /** 仅调试模式可用：强制单一来源 */
   provider?: string;
   useCache: boolean;
 }
@@ -50,7 +51,7 @@ export class ProviderError extends Error {
   }
 }
 
-/** adapter 返回的原始结果（统一字段，来源字段映射见 impl-spec §7） */
+/** adapter 返回的原始结果（统一字段） */
 export interface RawResult {
   title: string;
   url: string;
@@ -64,12 +65,17 @@ export interface SearchResult extends RawResult {
   provider: string;
 }
 
-/** adapter 无状态纯函数；状态全在 state.ts */
+/** include_domains 支持级别：native=多域名原生 / single=单域名（site: 或单值参数）/ none=不支持 */
+export type DomainFilterCap = 'native' | 'single' | 'none';
+
+/** adapter 无状态：凭据由调用方传入，健康与计数全在 state.ts */
 export interface ProviderAdapter {
   readonly name: string;
   readonly maxCount: number;
-  search(req: SearchRequest, fetchCount: number, signal: AbortSignal): Promise<RawResult[]>;
-  /** 该源不支持请求中的某些参数时返回降级说明（写入 meta.note） */
+  readonly includeDomains: DomainFilterCap;
+  /** credential：该源的 key 或实例地址（免凭据的源为 undefined） */
+  search(req: SearchRequest, fetchCount: number, signal: AbortSignal, credential?: string): Promise<RawResult[]>;
+  /** include_domains 以外的降级说明（截断、忽略某个参数）；只在该源给出结果时写入 meta.note */
   note?(req: SearchRequest): string | undefined;
 }
 
