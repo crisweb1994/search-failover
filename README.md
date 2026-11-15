@@ -105,7 +105,7 @@ Codex、Cursor、ZCode、VS Code、OpenCode、Claude Desktop 等见[接入宿主
 
 - 表格按默认优先级排列，由 `npm run plugin:sync` 从来源注册表生成。默认链只包含"默认进链"为"是"、且配好了凭据的来源。
 - 智谱、DeepSeek、千帆、Serper 是付费或一次性额度，**只配 key 不会进链**，要在 `SEARCH_FAILOVER_PROVIDERS` 或配置文件的 `providers` 里显式列出（见[配置](#配置)）。
-- "本地预算"是网关自己的保守计数，用来少发请求，不是账户余额，也不保证落在免费额度内。价格依据（2026-10-04）：[Brave](https://api-dashboard.search.brave.com/documentation/pricing) 的 1000 是月度 credits 折算出的参考值；[Exa](https://exa.ai/pricing) 按月重置 credits，800 只是保留的本地上限；智谱按次计费（GLM Coding Plan 含次数）；千帆每月 1500 次免费，超额按量；Serper 是一次性 credits，分档计费尚待实测。[DeepSeek](https://api-docs.deepseek.com/guides/search)（2026-10-18）按成功请求计费，每千次 0.75 美元，空结果和失败不计费；官方公布的免费期（至 2026-11-01）只针对 DeepSeek 模型在 Harness、Claude Code、Codex 里发起的服务端搜索，网关直接调用接口，按次计费。
+- "本地预算"是网关自己的保守计数，用来少发请求，不是账户余额，也不保证落在免费额度内。价格依据（2026-10-04）：[Brave](https://api-dashboard.search.brave.com/documentation/pricing) 的 1000 是月度 credits 折算出的参考值；[Exa](https://exa.ai/pricing) 按月重置 credits，800 只是保留的本地上限；智谱按次计费（GLM Coding Plan 含次数）；千帆每月 1500 次免费，超额按量；Serper 是一次性 credits，分档计费尚待实测。[DeepSeek](https://api-docs.deepseek.com/guides/search)（2026-11-14）按成功请求计费，每千次 0.75 美元，空结果和失败不计费；此前公布的免费期（至 2026-11-01）已过，官方文档现在写明 DeepSeek 模型在 Harness、Claude Code、Codex 里触发的搜索同样按成功请求计费，网关直接调用接口也一样。
 - DeepSeek 的 `include_domains` 和 `freshness` 只能写进查询词（`site:a OR site:b`、`after:YYYY-MM-DD`），和查询词合计不超过 128 个字符：超出时截断查询词，并在 `note` 里说明；运算符挤得查询词不到 32 个字符时（大约 5 个以上的域名），这一家记为 `request_error`，换下一家。另外 DeepSeek 几乎总有结果：实测一条不可能命中的查询也返回了 8 条低相关结果，排在它后面的来源很少因为"没搜到"被用上。
 - SearXNG 需要自建实例，并在实例的 `settings.yml` 里把 `json` 加进 `search.formats`，否则接口返回 403。
 - DuckDuckGo 靠抓取 HTML 页面，免 key 但受反爬限制；国内网络无法直连。
@@ -162,10 +162,11 @@ web_search(query)
 | ZCode | 插件市场，或手写 MCP 配置 |
 | VS Code（Copilot） | `.vscode/mcp.json` |
 | OpenCode | MCP 配置（依官方文档编写，尚未在客户端实测） |
+| DeepSeek Harness（dsh） | `dsh plugin add` 装插件包，或在 `cordis.patch.yml` 里加一条 MCP 条目（开发者预览；已在 dsh 0.2.2-rc.3 上实测） |
 | Claude Desktop、Windsurf、Cline、Cherry Studio 等 | 通用 `mcpServers` 配置 |
 | 只支持远程 MCP 的平台（网页版客户端、Dify / n8n 等工作流平台） | [HTTP 模式](#http-模式远程平台) |
 
-本仓库按 [Agent Plugins 1.0](https://agent-plugins.org) 打包（见 `plugin/`），Codex / Cursor / ZCode 的市场清单放在仓库根目录。
+本仓库按 [Agent Plugins 1.0](https://agent-plugins.org) 打包（见 `plugin/`），Codex / Cursor / ZCode 的市场清单放在仓库根目录；DeepSeek Harness 的插件包声明在 `package.json` 的 `dsh` 字段，补丁在 `dsh/`。
 
 > [!IMPORTANT]
 > **各宿主通用的几件事：**
@@ -305,6 +306,48 @@ ZCode 的 MCP schema 很严格：`command` 必须是字符串，环境变量字�
 ```
 
 和其他宿主不同：`command` 是**数组**，环境变量字段叫 **`environment`**。这段依据 OpenCode 官方文档编写，尚未在客户端实测。
+
+</details>
+
+<details>
+<summary>DeepSeek Harness（dsh）</summary>
+
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（`dsh`）是 DeepSeek 开源的 agent 运行时，自带 MCP 客户端。它还在开发者预览阶段，官方声明会有不兼容变更。本节在 dsh 0.2.2-rc.3（桌面版自带的命令行）上实测过：配置合成、stdio 与 HTTP 两种连接、环境变量、插件包的安装与卸载，以及模型真实调用 `web_search` 和 `web_search_status`。**没测过**的有：Web 界面里的安装对话框、Windows、其他 dsh 版本，以及从 npm 安装已发布的包（0.5.0 发布前装不了，上面的安装命令用本地打包的 tarball 验证过）。
+
+**装成插件包（推荐，需要 0.5.0 及以上）：**
+
+```bash
+dsh plugin --profile web add search-failover
+```
+
+重启 `dsh web` 后生效；`dsh --profile web --dump-config` 里能看到 `search-failover` 这一层。也可以在 Web 界面的 Plugins 页用安装对话框装：输入包名 `search-failover`，装完在完成页启用。卸载：`dsh plugin --profile web remove search-failover`。包里用 `engines.dsh` 声明了支持的 dsh 版本，不在范围内时 dsh 会拒绝安装。
+
+**手写配置（不装包）：** 把下面这段合并进 `$DSH_HOME/profiles/web/cordis.patch.yml`（只对 `web` profile 生效，`DSH_HOME` 默认 `~/.dsh`）或 `$DSH_HOME/cordis.patch.yml`（所有 profile），不要整个覆盖已有文件。也可以存成单独的文件，用 `dsh web --patch 文件 --no-open` 临时启用（`--patch` 必须写在 `--no-open` 这类应用参数之前）：
+
+```yaml
+- insert:
+    - id: mcp-search-failover
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: search-failover
+        transport: stdio
+        command: npx
+        args: ['-y', 'search-failover']
+        env: {}
+```
+
+装了插件包就不要再写这段：同一个 `serverName` 只能挂一次，两处同时存在会冲突。模型看到的工具名是 `mcp__search-failover__web_search` 和 `mcp__search-failover__web_search_status`。连 HTTP 模式时，把 `transport` 改成 `streamable-http`，用 `url: http://127.0.0.1:8787/mcp` 代替 `command`、`args` 和 `env`（实测可用：dsh 的探测请求带着 2026-07-28 的协议版本头，会被我们回 400，随后它自动降级成普通的 `initialize`）。
+
+dsh 和其他宿主不同的几件事：
+
+- **shell 里 `export` 的 `*_API_KEY` 传不到我们的进程。** dsh 启动 stdio 子进程时会丢弃名字含 `KEY`、`PASSWORD`、`SECRET`、`TOKEN` 的环境变量（实测：`TAVILY_API_KEY` 这类被丢弃，`HOME`、`HTTPS_PROXY`、`LOG` 等其他变量照常传入）。三种办法：
+  - 写进 `~/.config/search-failover/config.json`（推荐，条目里什么都不用加）。
+  - 写进条目的 `env`，例如 `TAVILY_API_KEY: !!js process.env.TAVILY_API_KEY`。变量**没设置**时整条条目会因 `ValidationError` 无法激活（终端里会出现 `1 entry did not activate`），可能没设置的写成 `!!js "process.env.TAVILY_API_KEY ?? ''"`，空字符串我们当作未设置。
+  - 用 dsh 自己的凭据库（在 Settings → Models 里填过的 key）：条目加 `inject: [credentials]` 和 `expandTemplates: true`，`env` 里写 `DEEPSEEK_API_KEY: '${credential:DEEPSEEK_API_KEY}'`，key 不落任何文件。DeepSeek 来源不在默认链里，还要在 `env` 里加 `SEARCH_FAILOVER_PROVIDERS: 'deepseek,duckduckgo'`。
+- **dsh 自带一个 `web_search`（DeepSeek 后端，按成功请求计费，没有兜底），模型会同时看到两个搜索工具。** 实测发给模型的工具列表里，内置的 `web_search` 和 `mcp__search-failover__web_search` 并存。我们 server 的 `instructions` 会进系统提示，一次不点名工具的提问里，模型先用的是我们这个；搜索失败后，它按说明读 `fallback_chain`、调 `web_search_status`，最后才改用内置的网页抓取。内置搜索没法用一行补丁关掉：web profile 把 `tool-web` 挂在 standard、ptc、cordis 三个 agent preset 里面，顶层的 `- id: tool-web` 补丁够不到，界面里"插件 → 网页搜索与获取"也没有关闭选项。官方文档写明，没有 DeepSeek 搜索凭据时（比如用其他厂商的模型），内置搜索会自己从请求里消失，这时只剩我们这个。
+- **连不上时的表现。** 默认（`failOnStartupError: false`）下 dsh 自己什么都不打印，照常启动，只是没有这个 server 的工具；子进程自己的 stderr 会原样出现在终端里，所以 `npx` 报错、`Cannot find module` 之类能直接看到。排错时在条目里加 `failOnStartupError: true`，dsh 会多打一条 `warning: 1 entry did not activate` 和原因。
+- **会拉起两次进程。** dsh 先起一个探测进程（发 `server/discover`，我们回 `Method not found`，它随即关闭 stdin，进程以 0 退出），再起真正服务的进程，所以 `npx` 会被调用两次，终端里只看得到第二个进程的日志。`npx -y search-failover` 从冷启动到就绪实测约 5 秒；退出 dsh 后没有残留进程。
+- **覆盖插件包的条目：** 在自己的 `cordis.patch.yml` 里写 `- id: mcp-search-failover` 加完整的 `config`（整块替换，实测可用）。
 
 </details>
 
@@ -476,7 +519,7 @@ SEARCH_FAILOVER_HTTP_TOKEN=$(openssl rand -hex 24) npx -y search-failover --http
 - **不合并多家结果。** 第一家返回非空结果就结束；这是容灾网关，不是元搜索引擎。
 - **部分来源还没用真实 key 校准。** 智谱、千帆、Serper、SearXNG 的契约测试用的是按官方文档构造的响应；博查、Brave 的"无结果"响应格式依据官方实现和响应模型推断。`scripts/probe.mts` 就是用来采集真实响应的（包括必然无结果的查询），手上有 key 的话，欢迎跑一遍并把脱敏后的结果贴到 issue 里。
 - **DuckDuckGo 靠抓取 HTML 页面。** 免 key，但受网络和反爬限制，页面改版可能失效；遇到不认识的页面结构会报错，不会当成空结果。
-- **宿主兼容。** OpenCode、VS Code 的配置依官方文档编写，尚未在客户端实测；Cursor 的官方插件市场仍在审核。HTTP 模式在本地用 MCP SDK 客户端测过，还没逐个平台验证。
+- **宿主兼容。** OpenCode、VS Code 的配置依官方文档编写，尚未在客户端实测；DeepSeek Harness 在 0.2.2-rc.3 上实测过（开发者预览，官方声明会有不兼容变更）；Cursor 的官方插件市场仍在审核。HTTP 模式在本地用 MCP SDK 客户端测过，还没逐个平台验证。
 
 ## 开发与发布
 
@@ -493,6 +536,8 @@ node scripts/runtime-smoke.mjs dist/index.js   # 用构建产物跑一遍 stdio 
 接入新来源：在 `src/providers/` 新建 adapter，导出包含凭据变量、默认值和能力的 `definition`，在 `src/providers/registry.ts` 加一行，补契约测试，再跑 `npm run plugin:sync`：Cursor 插件变量和上面的来源表格会自动更新。流程是 probe-first：先 `npx tsx scripts/probe.mts <provider>` 用真实 key 采集正常、必然无结果、错误 key、越界参数四种响应的脱敏快照，再据此校准契约测试。
 
 插件清单：`npm run plugin:check`（结构、生成内容和锁定版本校验，`prepublishOnly` 会跑）、`npm run plugin:sync`（重新生成 Cursor 变量和来源表格）、`node scripts/plugin-sync.mjs --published`（确认清单锁定的版本在 npm 上已发布，CI 会跑）。清单锁定的版本由发布 workflow 自动更新，不需要手动改。
+
+DeepSeek Harness 插件包：`package.json` 的 `dsh.bundle` 指向 `dsh/cordis.patch.yml`，`engines.dsh` 声明支持的 dsh 版本，`locale/` 和 `dsh/icon.svg` 提供 Plugins 页与市场卡片显示的名称、简介和图标；`test/unit/dsh-bundle.test.ts` 校验这些文件都进了发布包（`prepublishOnly` 会跑）。dsh 的 Discover 没有官方默认索引，要被搜到需要三样：公开发布在 npm 且声明了 `dsh.bundle` 的包（0.5.0 起）、仓库的 GitHub 话题 `dsh-plugin`（dsh 官方 README 里唯一写明的发现方式）、被某个索引收录（用户自己添加索引源；dsh 仓库里的参考生成器 `apps/plugin-market-generator` 只收声明了 `dsh.bundle` 的包）。补丁格式或 dsh 升级后，记得重新核对 `engines.dsh` 的范围。
 
 发布冒烟按插件同款命令拉起真实分发包，跑完 initialize → tools/list → status → 真实搜索：`node scripts/smoke-stdio.mjs`，支持 `--env KEY=V`、`--config /绝对路径/config.json`、`--command node -- dist/index.js`（本地构建）。
 

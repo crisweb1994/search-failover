@@ -1,0 +1,17 @@
+# search-failover 的 DeepSeek Harness（dsh）bundle：给 profile 挂一个 stdio MCP 服务。
+# 安装：dsh plugin --profile web add search-failover
+#
+# 凭据写进 ~/.config/search-failover/config.json。dsh 启动 stdio 子进程时会丢弃名字含
+# KEY / PASSWORD / SECRET / TOKEN 的环境变量，shell 里 export 的 *_API_KEY 传不到这个进程。
+#
+# 想改参数（env、固定版本、HTTP 模式……）：在自己的 cordis.patch.yml 里写同 id 的行覆盖它。
+# 补丁会整块替换 config，serverName、transport、command、args 都要重写。
+- insert:
+    - id: mcp-search-failover
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: search-failover
+        transport: stdio
+        command: npx
+        args: ['-y', 'search-failover']
+        env: {}

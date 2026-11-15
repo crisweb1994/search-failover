@@ -105,7 +105,7 @@ See [Hosts](#hosts) for Codex, Cursor, ZCode, VS Code, OpenCode, Claude Desktop 
 
 - The table is in default priority order and is generated from the provider registry by `npm run plugin:sync`. The default chain contains only providers marked "yes" whose credentials are configured.
 - Zhipu, DeepSeek, Qianfan and Serper are paid or one-off credits: **a key alone does not add them to the chain**; list them in `SEARCH_FAILOVER_PROVIDERS` or in the config file's `providers` (see [Configuration](#configuration)).
-- "Local budget" is the gateway's own conservative counter to avoid unnecessary requests. It is not your account balance and does not guarantee staying within a free tier. Pricing references (2026-10-04): [Brave](https://api-dashboard.search.brave.com/documentation/pricing)'s 1,000 is derived from monthly credits; [Exa](https://exa.ai/pricing) resets credits monthly and 800 is only a local cap; Zhipu charges per call (included in the GLM Coding Plan); Qianfan has 1,500 free calls per month, then pay as you go; Serper uses one-off credits, tiered pricing not yet verified. [DeepSeek](https://api-docs.deepseek.com/guides/search) (2026-10-18) bills each successful request at $0.75 per 1,000; empty results and failures are free. Its announced free period (until 2026-11-01) covers only server-side searches made by DeepSeek models in Harness, Claude Code and Codex; the gateway calls the API directly and is billed per request.
+- "Local budget" is the gateway's own conservative counter to avoid unnecessary requests. It is not your account balance and does not guarantee staying within a free tier. Pricing references (2026-10-04): [Brave](https://api-dashboard.search.brave.com/documentation/pricing)'s 1,000 is derived from monthly credits; [Exa](https://exa.ai/pricing) resets credits monthly and 800 is only a local cap; Zhipu charges per call (included in the GLM Coding Plan); Qianfan has 1,500 free calls per month, then pay as you go; Serper uses one-off credits, tiered pricing not yet verified. [DeepSeek](https://api-docs.deepseek.com/guides/search) (2026-11-14) bills each successful request at $0.75 per 1,000; empty results and failures are free. The free period announced earlier (until 2026-11-01) is over: the docs now say searches triggered by DeepSeek models in Harness, Claude Code and Codex are also billed per successful request, and so are the gateway's direct calls.
 - DeepSeek takes `include_domains` and `freshness` only as query operators (`site:a OR site:b`, `after:YYYY-MM-DD`), and the whole query is capped at 128 characters: the search terms are truncated to fit, with a `note`; when the operators would leave fewer than 32 characters for the terms (roughly five or more domains), DeepSeek records `request_error` and the next provider is tried. DeepSeek also almost always returns something: a probe query that cannot match anything still got 8 low-relevance results, so providers after it rarely run because of "no results".
 - SearXNG needs a self-hosted instance with `json` added to `search.formats` in its `settings.yml`; otherwise the API returns 403.
 - DuckDuckGo works by scraping its HTML page: no key, but subject to anti-bot measures; unreachable from mainland China without a proxy.
@@ -162,10 +162,11 @@ How each error class is handled:
 | ZCode | Plugin marketplace, or MCP config |
 | VS Code (Copilot) | `.vscode/mcp.json` |
 | OpenCode | MCP config (written from the official docs, not yet tested in the client) |
+| DeepSeek Harness (dsh) | `dsh plugin add` for the plugin package, or an MCP entry in `cordis.patch.yml` (developer preview; tested on dsh 0.2.2-rc.3) |
 | Claude Desktop, Windsurf, Cline, Cherry Studio, … | Generic `mcpServers` config |
 | Platforms that only support remote MCP (web clients, Dify / n8n style workflow tools) | [HTTP mode](#http-mode-remote-platforms) |
 
-The repository is packaged per [Agent Plugins 1.0](https://agent-plugins.org) (see `plugin/`); marketplace manifests for Codex / Cursor / ZCode live at the repository root.
+The repository is packaged per [Agent Plugins 1.0](https://agent-plugins.org) (see `plugin/`); marketplace manifests for Codex / Cursor / ZCode live at the repository root. The DeepSeek Harness bundle is declared in the `dsh` field of `package.json`, with its patch in `dsh/`.
 
 > [!IMPORTANT]
 > **Things that apply to every host:**
@@ -305,6 +306,48 @@ ZCode's MCP schema is strict: `command` must be a string, the environment field 
 ```
 
 Unlike other hosts, `command` is an **array** and the environment field is **`environment`**. Written from the OpenCode docs; not yet tested in the client.
+
+</details>
+
+<details>
+<summary>DeepSeek Harness (dsh)</summary>
+
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`) is DeepSeek's open-source agent runtime and ships its own MCP client. It is in developer preview and its maintainers warn of breaking changes. This section was tested on dsh 0.2.2-rc.3 (the command line bundled with the desktop app): config composition, stdio and HTTP connections, environment variables, installing and removing the plugin package, and a model really calling `web_search` and `web_search_status`. **Not tested:** the install dialog in the Web UI, Windows, other dsh versions, and installing the published package from npm (not possible before 0.5.0; the install command above was verified with a locally packed tarball).
+
+**Install as a plugin package (recommended; needs 0.5.0 or later):**
+
+```bash
+dsh plugin --profile web add search-failover
+```
+
+Restart `dsh web`; `dsh --profile web --dump-config` shows a `search-failover` layer. You can also install it from the Plugins page of the Web UI: enter the package name `search-failover` in the install dialog and enable it on the finished screen. Remove it with `dsh plugin --profile web remove search-failover`. The package declares the dsh versions it supports in `engines.dsh`; dsh refuses to install it outside that range.
+
+**Hand-written config (no package):** merge this into `$DSH_HOME/profiles/web/cordis.patch.yml` (the `web` profile only; `DSH_HOME` defaults to `~/.dsh`) or `$DSH_HOME/cordis.patch.yml` (every profile), and do not overwrite an existing file. Or save it as a separate file and enable it for one run with `dsh web --patch FILE --no-open` (`--patch` must come before app flags such as `--no-open`):
+
+```yaml
+- insert:
+    - id: mcp-search-failover
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: search-failover
+        transport: stdio
+        command: npx
+        args: ['-y', 'search-failover']
+        env: {}
+```
+
+Do not use both: the same `serverName` can be mounted only once, so having the package and this entry together conflicts. The model sees the tools as `mcp__search-failover__web_search` and `mcp__search-failover__web_search_status`. For HTTP mode, set `transport: streamable-http` and use `url: http://127.0.0.1:8787/mcp` instead of `command`, `args` and `env` (tested: dsh's probe request carries the 2026-07-28 protocol version header and gets a 400 from us, after which it falls back to a plain `initialize`).
+
+What differs from other hosts:
+
+- **`*_API_KEY` variables exported in your shell never reach our process.** When dsh starts a stdio child it drops every environment variable whose name contains `KEY`, `PASSWORD`, `SECRET` or `TOKEN` (tested: `TAVILY_API_KEY` and the like are dropped; `HOME`, `HTTPS_PROXY`, `LOG` and other variables come through). Three ways around it:
+  - Put them in `~/.config/search-failover/config.json` (recommended; nothing to add to the entry).
+  - List them in the entry's `env`, for example `TAVILY_API_KEY: !!js process.env.TAVILY_API_KEY`. If the variable is **not set**, the whole entry fails with a `ValidationError` and does not activate (the terminal shows `1 entry did not activate`); write variables that may be unset as `!!js "process.env.TAVILY_API_KEY ?? ''"`, and an empty string counts as unset for us.
+  - Use dsh's own credential store (a key you entered under Settings → Models): add `inject: [credentials]` and `expandTemplates: true` to the entry and write `DEEPSEEK_API_KEY: '${credential:DEEPSEEK_API_KEY}'` in `env`, so the key is never written to a file. The DeepSeek provider is not in the default chain, so also add `SEARCH_FAILOVER_PROVIDERS: 'deepseek,duckduckgo'` to `env`.
+- **dsh has its own `web_search` (DeepSeek backend, billed per successful request, no failover), so the model sees two search tools.** Tested: the tool list sent to the model contains both the built-in `web_search` and `mcp__search-failover__web_search`. Our server's `instructions` go into the system prompt; on one question that did not name a tool, the model used ours first, and after the search failed it read `fallback_chain`, called `web_search_status`, and only then fell back to the built-in page fetch. The built-in search cannot be turned off with a one-line patch: the web profile mounts `tool-web` inside the standard, ptc and cordis agent presets, so a top-level `- id: tool-web` patch does not reach it, and "Plugins → Web search and fetch" in the UI has no off switch. The official docs say that without a DeepSeek search credential (for example with another vendor's model) the built-in search removes itself from requests, leaving only ours.
+- **What a failed connection looks like.** By default (`failOnStartupError: false`) dsh prints nothing itself and starts anyway, just without this server's tools; the child's own stderr appears in the terminal as is, so an `npx` error or `Cannot find module` is visible. Add `failOnStartupError: true` to the entry when debugging and dsh also prints `warning: 1 entry did not activate` with the reason.
+- **Two processes are started.** dsh first starts a probe process (it sends `server/discover`, we answer `Method not found`, and it closes stdin so the process exits with 0), then the process that actually serves, so `npx` runs twice and only the second process's log reaches the terminal. `npx -y search-failover` took about 5 seconds from cold start to ready; nothing is left running after dsh exits.
+- **To override the package's entry,** write `- id: mcp-search-failover` with a complete `config` in your own `cordis.patch.yml` (a whole-block replacement; tested).
 
 </details>
 
@@ -476,7 +519,7 @@ No arguments. Returns each provider's state, the environment variable that confi
 - **Results from several providers are not merged.** The first non-empty result wins; this is a failover gateway, not a metasearch engine.
 - **Some providers are not yet calibrated with real keys.** Contract tests for Zhipu, Qianfan, Serper and SearXNG use responses built from official docs; the "no results" response shapes for Bocha and Brave are inferred from the official implementation and response model. `scripts/probe.mts` captures real responses (including a query that cannot match anything); if you have keys, please run it and post the redacted output in an issue.
 - **DuckDuckGo works by scraping HTML.** No key, but subject to network conditions and anti-bot measures; a page redesign can break it, and an unrecognized page structure is reported as an error, never as an empty result.
-- **Host compatibility.** The OpenCode and VS Code configs are written from official docs and not yet tested in those clients; the official Cursor marketplace listing is under review. HTTP mode is tested locally with the MCP SDK client but not yet against each platform.
+- **Host compatibility.** The OpenCode and VS Code configs are written from official docs and not yet tested in those clients; DeepSeek Harness was tested on 0.2.2-rc.3 (a developer preview whose maintainers warn of breaking changes); the official Cursor marketplace listing is under review. HTTP mode is tested locally with the MCP SDK client but not yet against each platform.
 
 ## Development and release
 
@@ -493,6 +536,8 @@ The repository's `.cursor/mcp.json` and `.zcode/config.json` point at the local 
 Adding a provider: create an adapter in `src/providers/` exporting a `definition` with its credential variable, defaults and capabilities, add one line to `src/providers/registry.ts`, write contract tests, then run `npm run plugin:sync` to regenerate the Cursor plugin variables and the provider tables above. The process is probe-first: `npx tsx scripts/probe.mts <provider>` captures redacted snapshots of a normal query, a query that cannot match anything, a bad key and out-of-range parameters with a real key, and the contract tests are calibrated against them.
 
 Plugin manifests: `npm run plugin:check` (structure, generated content and pinned version; run by `prepublishOnly`), `npm run plugin:sync` (regenerate Cursor variables and provider tables), `node scripts/plugin-sync.mjs --published` (confirm the pinned version is published on npm; run in CI). The pinned version is updated by the release workflow; no manual edits needed.
+
+DeepSeek Harness bundle: `dsh.bundle` in `package.json` points at `dsh/cordis.patch.yml`; `engines.dsh` declares the supported dsh versions; `locale/` and `dsh/icon.svg` supply the name, description and icon shown on the Plugins page and in market cards. `test/unit/dsh-bundle.test.ts` checks that these files ship in the package (run by `prepublishOnly`). The dsh Discover tab has no official default index, so being found takes three things: a public npm package that declares `dsh.bundle` (from 0.5.0), the GitHub topic `dsh-plugin` on the repository (the only discovery mechanism the dsh README names), and a listing in some index (users add index sources themselves; the official reference generator, `apps/plugin-market-generator` in the dsh repository, lists only packages that declare `dsh.bundle`). Recheck the `engines.dsh` range whenever the patch format or dsh changes.
 
 The release smoke test launches the real published package exactly as the plugins do and runs initialize → tools/list → status → a real search: `node scripts/smoke-stdio.mjs`, with `--env KEY=V`, `--config /abs/path/config.json`, `--command node -- dist/index.js` (local build).
 
