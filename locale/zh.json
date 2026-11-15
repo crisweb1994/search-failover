@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "搜索故障转移",
+    "description": "网页搜索，多家搜索 API 自动兜底：博查、Tavily、Brave、Exa、SearXNG、DuckDuckGo，可选智谱、DeepSeek、百度千帆、Serper；零 key 可用。"
+  }
+}

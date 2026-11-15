@@ -29,6 +29,9 @@
     "duckduckgo",
     "zhipu",
     "deepseek",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
     "qianfan",
     "serper",
     "ai-agent"
@@ -36,13 +39,23 @@
   "bin": {
     "search-failover": "dist/index.js"
   },
+  "icon": "./dsh/icon.svg",
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./dsh/cordis.patch.yml"
+    }
+  },
   "files": [
     "dist",
+    "dsh",
+    "locale",
     "README.en.md",
     "CHANGELOG.md"
   ],
   "engines": {
-    "node": ">=20.10"
+    "node": ">=20.10",
+    "dsh": ">=0.2.0-rc.2 <0.3.0-0"
   },
   "scripts": {
     "build": "node scripts/build.mjs",

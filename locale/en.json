@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Search Failover",
+    "description": "Web search with automatic failover across Bocha, Tavily, Brave, Exa, SearXNG and DuckDuckGo, plus opt-in Zhipu, DeepSeek, Qianfan and Serper. Works with zero API keys."
+  }
+}
